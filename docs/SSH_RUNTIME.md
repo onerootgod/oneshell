@@ -182,22 +182,30 @@ type SshRuntimeCapabilities = {
 - Rust 侧会话注册表与事件发射骨架
 - `connect / send_input / resize / disconnect / list_sessions` command handler
 - mock keepalive lifecycle tick
-- transport 已开始按独立枚举分层，便于把 mock bridge 替换成真实 `russh` transport
-- connect 阶段已增加真实网络预检：直连 / SOCKS5 都会先做 socket 级连通性验证
+- transport 已开始按独立枚举分层
+- `connect` 阶段已增加真实网络预检：直连 / SOCKS5 都会先做 socket 级连通性验证
+- `connect` 成功后会继续进入 `russh` 真正握手、密码认证、PTY 请求和交互式 shell 建立
+- `stdout / stderr / exit-status / eof / closed` 已开始走真实 channel 读循环回推前端
+- keepalive 已开始按 `russh` handle 周期性发出
 
-## ⛔ 当前最大缺口
+## ✅ 当前已经接通的真实链路
 
-现在前后端契约已经定下来了，Rust 侧也已经有会话注册表和事件发射骨架，但底层还不是 `russh` 真传输层。
+当前已经不是单纯 mock：
 
-当前 mock runtime 已经会周期性发出：
+- 直连 TCP 预检
+- SOCKS5 预检
+- `russh` 握手
+- 密码认证
+- `request_pty`
+- `request_shell`
+- channel 读循环
+- keepalive
 
-- `state = "keepalive"`
-
-这能帮助前端先把 lifecycle UI 和状态机接完整，后面再替换成真实 SSH keepalive。
+也就是说，前端现在收到的 `ssh-output / ssh-lifecycle`，已经开始可以来自真实 SSH channel，而不只是 mock 回显。
 
 ## 🌍 当前 connect 已经不是纯假动作
 
-虽然底层还没有切到完整 `russh` 传输层，但 `connect` 现在已经会先做一轮真实网络预检：
+`connect` 现在会先做一轮真实网络预检，再继续进入真正的 `russh` 建链：
 
 - 直连模式：`TcpStream::connect`
 - SOCKS5 模式：`tokio-socks::Socks5Stream`
@@ -210,25 +218,26 @@ type SshRuntimeCapabilities = {
 
 当前仍然缺的部分是：
 
-- 真正 SSH 握手
-- 真正 PTY / shell 建立
-- 真正 stdout / stderr 流
+- 更严格的 host key 策略，而不是默认放行
+- 更完整的认证模式，例如密钥认证
+- 连接中断后的自动重连与更细粒度错误分类
 
 ## 🧩 当前 Rust runtime 的分层方向
 
-`src-tauri/src/modules/ssh.rs` 现在不再把所有行为硬编码在一个大函数里，而是开始按 transport 分层：
+`src-tauri/src/modules/ssh.rs` 现在不再把所有行为硬编码在一个大函数里，而是按 transport 分层：
 
 - `SessionTransport::MockBridge`
+- `SessionTransport::Russh`
 
 这个结构的目的很明确：
 
-- 先保证前后端契约稳定
-- 再把 mock bridge 平滑替换成真实 `russh` transport
-- 避免后面接真实 SSH 时把整个会话层重新打碎
+- 保留前后端契约稳定
+- 让真实 `russh` transport 成为默认路径，同时保留 mock bridge 结构便于开发期兜底
+- 避免后面继续扩认证、脚本注入、SFTP 时把整个会话层重新打碎
 
 所以下一个 agent 的最高优先级，不是改前端视觉，而是：
 
-1. 把 `src-tauri/src/modules/ssh.rs` 的 mock session bridge 替换成真正的 `russh` transport
-2. 接入 `SOCKS5` 真代理拨号
-3. 接入 keep-alive
-4. 按本文档里的事件名持续推送真实 stdout / stderr / lifecycle
+1. 收紧 host key 校验策略
+2. 补齐密钥认证
+3. 把脚本工作站的命令注入接到真实 SSH session
+4. 在此 transport 之上接 SFTP 子系统

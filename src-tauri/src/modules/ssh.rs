@@ -4,15 +4,21 @@ use crate::modules::models::{
 };
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
+use russh::{
+    client,
+    keys::ssh_key,
+    ChannelMsg, ChannelReadHalf, ChannelWriteHalf, Disconnect,
+};
 use std::{
     collections::HashMap,
+    io::Cursor,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
 use tokio::{
     net::TcpStream,
-    sync::RwLock,
+    sync::{Mutex, RwLock},
     task::JoinHandle,
     time::{sleep, timeout, Duration},
 };
@@ -22,6 +28,8 @@ use uuid::Uuid;
 pub const SSH_OUTPUT_EVENT: &str = "ssh-output";
 pub const SSH_LIFECYCLE_EVENT: &str = "ssh-lifecycle";
 const TRANSPORT_MODE_MOCK_RUSSH_BRIDGE: &str = "mock-russh-bridge+preflight";
+const TRANSPORT_MODE_RUSSH_PASSWORD_PTY: &str = "russh-password+pty-shell";
+const RUNTIME_TRANSPORT_MODE: &str = "russh-password+pty-shell";
 const KEEP_ALIVE_SECONDS: u64 = 20;
 const CONNECT_TIMEOUT_SECONDS: u64 = 8;
 
@@ -31,7 +39,6 @@ pub struct SshSessionManager {
     sessions: Arc<RwLock<HashMap<String, SessionRecord>>>,
 }
 
-#[derive(Debug, Clone)]
 struct SessionRecord {
     summary: SshSessionSummary,
     term_type: String,
@@ -41,15 +48,46 @@ struct SessionRecord {
     keepalive_task: Option<JoinHandle<()>>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 enum SessionTransport {
     MockBridge,
+    Russh(RusshTransportState),
+}
+
+#[derive(Clone)]
+struct RusshTransportState {
+    handle: Arc<Mutex<RusshHandle>>,
+    writer: Arc<Mutex<RusshChannelWriter>>,
+}
+
+type RusshHandle = client::Handle<RusshClientHandler>;
+type RusshChannelWriter = ChannelWriteHalf<client::Msg>;
+
+#[derive(Clone)]
+enum KeepaliveTarget {
+    MockBridge,
+    Russh(Arc<Mutex<RusshHandle>>),
+}
+
+#[derive(Clone, Default)]
+struct RusshClientHandler;
+
+impl client::Handler for RusshClientHandler {
+    type Error = russh::Error;
+
+    async fn check_server_key(
+        &mut self,
+        _server_public_key: &ssh_key::PublicKey,
+    ) -> std::result::Result<bool, Self::Error> {
+        Ok(true)
+    }
 }
 
 impl SessionTransport {
     fn mode(&self) -> &'static str {
         match self {
             SessionTransport::MockBridge => TRANSPORT_MODE_MOCK_RUSSH_BRIDGE,
+            SessionTransport::Russh(_) => TRANSPORT_MODE_RUSSH_PASSWORD_PTY,
         }
     }
 
@@ -65,19 +103,9 @@ impl SessionTransport {
                 "[oneshell:ssh-bootstrap] {}\r\n[oneshell:ssh-bootstrap] term={} size={}x{}\r\n[oneshell:ssh-bootstrap] 当前为 mock transport，下一步将替换成 russh 真正传输层。\r\n",
                 proxy_message, term_type, cols, rows
             ),
-        }
-    }
-
-    fn stdin_echo(
-        &self,
-        escaped_input: &str,
-        summary: &SshSessionSummary,
-        term_type: &str,
-    ) -> String {
-        match self {
-            SessionTransport::MockBridge => format!(
-                "[oneshell:ssh-stdin] {}\r\n[oneshell:ssh-target] {}@{}:{} ({})\r\n",
-                escaped_input, summary.username, summary.host, summary.port, term_type
+            SessionTransport::Russh(_) => format!(
+                "[oneshell:ssh-bootstrap] {}\r\n[oneshell:ssh-bootstrap] term={} size={}x{}\r\n[oneshell:ssh-bootstrap] 已切到 russh 真 SSH transport，PTY 与 shell 已建立。\r\n",
+                proxy_message, term_type, cols, rows
             ),
         }
     }
@@ -87,6 +115,16 @@ impl SessionTransport {
             SessionTransport::MockBridge => format!(
                 "mock keepalive tick ({KEEP_ALIVE_SECONDS}s) 已发出，等待切换到真实 russh transport"
             ),
+            SessionTransport::Russh(_) => {
+                format!("russh keepalive ({KEEP_ALIVE_SECONDS}s) 已发送")
+            }
+        }
+    }
+
+    fn keepalive_target(&self) -> KeepaliveTarget {
+        match self {
+            SessionTransport::MockBridge => KeepaliveTarget::MockBridge,
+            SessionTransport::Russh(state) => KeepaliveTarget::Russh(state.handle.clone()),
         }
     }
 }
@@ -115,6 +153,16 @@ impl SshSessionManager {
         self.run_preflight(&sanitized).await?;
 
         let session_id = Uuid::new_v4().to_string();
+        self.emit_lifecycle(SshLifecycleEvent {
+            session_id: session_id.clone(),
+            state: "handshake".into(),
+            message: Some("网络预检已通过，开始进行 russh 握手与密码认证".into()),
+        })?;
+
+        let transport = self
+            .connect_transport(&session_id, &sanitized)
+            .await
+            .with_context(|| format!("SSH 握手失败：{}@{}:{}", sanitized.username, sanitized.host, sanitized.port))?;
 
         let summary = SshSessionSummary {
             id: session_id.clone(),
@@ -128,13 +176,13 @@ impl SshSessionManager {
             proxy_auth_enabled: sanitized.proxy_auth_enabled,
             connected_at: current_timestamp(),
             keep_alive_seconds: KEEP_ALIVE_SECONDS,
-            transport_mode: SessionTransport::MockBridge.mode().into(),
+            transport_mode: transport.mode().into(),
             cols: sanitized.cols,
             rows: sanitized.rows,
         };
 
-        let transport = SessionTransport::MockBridge;
-        let keepalive_task = self.spawn_keepalive_loop(session_id.clone());
+        let keepalive_task =
+            self.spawn_keepalive_loop(session_id.clone(), transport.keepalive_target(), transport.clone());
 
         let record = SessionRecord {
             summary: summary.clone(),
@@ -154,7 +202,7 @@ impl SshSessionManager {
             session_id: session_id.clone(),
             state: "connected".into(),
             message: Some(format!(
-                "SSH 会话已注册：{}@{}:{}；网络预检已通过",
+                "SSH 会话已建立：{}@{}:{}",
                 summary.username, summary.host, summary.port
             )),
         })?;
@@ -181,23 +229,45 @@ impl SshSessionManager {
     }
 
     pub async fn send_input(&self, session_id: &str, data: &str) -> Result<()> {
-        let sessions = self.sessions.read().await;
-        let Some(record) = sessions.get(session_id) else {
-            bail!("SSH session not found: {session_id}");
+        let transport = {
+            let sessions = self.sessions.read().await;
+            let Some(record) = sessions.get(session_id) else {
+                bail!("SSH session not found: {session_id}");
+            };
+            record.transport.clone()
         };
 
-        let escaped = data
-            .replace('\r', "\\r")
-            .replace('\n', "\\n")
-            .replace('\u{3}', "^C");
-
-        self.emit_output(
-            session_id,
-            "stdout",
-            &record
-                .transport
-                .stdin_echo(&escaped, &record.summary, &record.term_type),
-        )?;
+        match transport {
+            SessionTransport::MockBridge => {
+                let sessions = self.sessions.read().await;
+                let record = sessions
+                    .get(session_id)
+                    .ok_or_else(|| anyhow!("SSH session not found: {session_id}"))?;
+                let escaped = data
+                    .replace('\r', "\\r")
+                    .replace('\n', "\\n")
+                    .replace('\u{3}', "^C");
+                self.emit_output(
+                    session_id,
+                    "stdout",
+                    &format!(
+                        "[oneshell:ssh-stdin] {}\r\n[oneshell:ssh-target] {}@{}:{} ({})\r\n",
+                        escaped,
+                        record.summary.username,
+                        record.summary.host,
+                        record.summary.port,
+                        record.term_type
+                    ),
+                )?;
+            }
+            SessionTransport::Russh(state) => {
+                let mut writer = state.writer.lock().await;
+                writer
+                    .data(Cursor::new(data.as_bytes().to_vec()))
+                    .await
+                    .context("failed to send ssh stdin to russh channel")?;
+            }
+        }
 
         Ok(())
     }
@@ -210,22 +280,37 @@ impl SshSessionManager {
         pixel_width: u32,
         pixel_height: u32,
     ) -> Result<()> {
-        let mut sessions = self.sessions.write().await;
-        let Some(record) = sessions.get_mut(session_id) else {
-            bail!("SSH session not found: {session_id}");
+        let transport = {
+            let mut sessions = self.sessions.write().await;
+            let Some(record) = sessions.get_mut(session_id) else {
+                bail!("SSH session not found: {session_id}");
+            };
+
+            record.summary.cols = cols.max(1);
+            record.summary.rows = rows.max(1);
+            record.pixel_width = pixel_width;
+            record.pixel_height = pixel_height;
+
+            record.transport.clone()
         };
 
-        record.summary.cols = cols.max(1);
-        record.summary.rows = rows.max(1);
-        record.pixel_width = pixel_width;
-        record.pixel_height = pixel_height;
+        if let SessionTransport::Russh(state) = transport {
+            let mut writer = state.writer.lock().await;
+            writer
+                .window_change(cols.max(1), rows.max(1), pixel_width, pixel_height)
+                .await
+                .context("failed to send window_change to russh channel")?;
+        }
 
         self.emit_lifecycle(SshLifecycleEvent {
             session_id: session_id.to_owned(),
             state: "resized".into(),
             message: Some(format!(
                 "PTY resize -> {}x{} ({}x{} px)",
-                record.summary.cols, record.summary.rows, pixel_width, pixel_height
+                cols.max(1),
+                rows.max(1),
+                pixel_width,
+                pixel_height
             )),
         })?;
 
@@ -240,6 +325,18 @@ impl SshSessionManager {
 
         if let Some(task) = removed.keepalive_task.take() {
             task.abort();
+        }
+
+        if let SessionTransport::Russh(state) = &removed.transport {
+            {
+                let mut writer = state.writer.lock().await;
+                let _ = writer.eof().await;
+                let _ = writer.close().await;
+            }
+            let mut handle = state.handle.lock().await;
+            let _ = handle
+                .disconnect(Disconnect::ByApplication, "OneShell disconnect", "zh-CN")
+                .await;
         }
 
         self.emit_lifecycle(SshLifecycleEvent {
@@ -261,7 +358,7 @@ impl SshSessionManager {
 
     pub async fn runtime_capabilities(&self) -> Result<SshRuntimeCapabilities> {
         Ok(SshRuntimeCapabilities {
-            transport_mode: TRANSPORT_MODE_MOCK_RUSSH_BRIDGE.into(),
+            transport_mode: RUNTIME_TRANSPORT_MODE.into(),
             supports_password_auth: true,
             supports_socks5_proxy: true,
             supports_proxy_auth: true,
@@ -289,6 +386,214 @@ impl SshSessionManager {
         self.app
             .emit(SSH_LIFECYCLE_EVENT, event)
             .context("failed to emit ssh lifecycle event")
+    }
+
+    async fn connect_transport(
+        &self,
+        session_id: &str,
+        input: &SanitizedConnectInput,
+    ) -> Result<SessionTransport> {
+        let config = Arc::new(client::Config {
+            inactivity_timeout: Some(Duration::from_secs(KEEP_ALIVE_SECONDS * 3)),
+            ..Default::default()
+        });
+
+        let mut handle = match &input.proxy {
+            Some(proxy) => {
+                let stream = self.connect_proxy_stream(proxy, input).await?;
+                client::connect_stream(config, stream, RusshClientHandler)
+                    .await
+                    .context("russh proxy transport connect_stream failed")?
+            }
+            None => client::connect(
+                config,
+                (input.host.as_str(), input.port),
+                RusshClientHandler,
+            )
+            .await
+            .context("russh direct transport connect failed")?,
+        };
+
+        let auth_result = handle
+            .authenticate_password(input.username.clone(), input.password.clone())
+            .await
+            .context("russh password authentication failed to execute")?;
+        if !auth_result.success() {
+            bail!("SSH 密码认证失败");
+        }
+
+        let mut channel = handle
+            .channel_open_session()
+            .await
+            .context("failed to open ssh session channel")?;
+        channel
+            .request_pty(
+                false,
+                input.term_type.as_str(),
+                input.cols,
+                input.rows,
+                input.pixel_width,
+                input.pixel_height,
+                &[],
+            )
+            .await
+            .context("failed to request ssh pty")?;
+        channel
+            .request_shell(false)
+            .await
+            .context("failed to request interactive shell")?;
+
+        let (reader, writer) = channel.split();
+        self.spawn_russh_reader_loop(session_id.to_owned(), reader);
+
+        Ok(SessionTransport::Russh(RusshTransportState {
+            handle: Arc::new(Mutex::new(handle)),
+            writer: Arc::new(Mutex::new(writer)),
+        }))
+    }
+
+    async fn connect_proxy_stream(
+        &self,
+        proxy: &SanitizedProxyConfig,
+        input: &SanitizedConnectInput,
+    ) -> Result<Socks5Stream<TcpStream>> {
+        let proxy_connect = async {
+            match (&proxy.username, &proxy.password) {
+                (Some(username), Some(password)) => {
+                    Socks5Stream::connect_with_password(
+                        (proxy.host.as_str(), proxy.port),
+                        (input.host.as_str(), input.port),
+                        username,
+                        password,
+                    )
+                    .await
+                }
+                _ => Socks5Stream::connect(
+                    (proxy.host.as_str(), proxy.port),
+                    (input.host.as_str(), input.port),
+                )
+                .await,
+            }
+        };
+
+        timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS), proxy_connect)
+            .await
+            .context("SOCKS5 代理 SSH transport 连接超时")?
+            .with_context(|| {
+                format!(
+                    "无法通过 SOCKS5 {}:{} 建立 SSH transport 到 {}:{}",
+                    proxy.host, proxy.port, input.host, input.port
+                )
+            })
+    }
+
+    fn spawn_russh_reader_loop(&self, session_id: String, mut reader: ChannelReadHalf) {
+        let app = self.app.clone();
+        let sessions = self.sessions.clone();
+
+        tauri::async_runtime::spawn(async move {
+            let mut saw_close = false;
+
+            while let Some(message) = reader.wait().await {
+                match message {
+                    ChannelMsg::Data { data } => {
+                        let text = String::from_utf8_lossy(data.as_ref()).into_owned();
+                        let _ = app.emit(
+                            SSH_OUTPUT_EVENT,
+                            SshOutputEvent {
+                                session_id: session_id.clone(),
+                                stream: "stdout".into(),
+                                data_base64: STANDARD.encode(data.as_ref()),
+                                text,
+                            },
+                        );
+                    }
+                    ChannelMsg::ExtendedData { data, ext } => {
+                        let text = String::from_utf8_lossy(data.as_ref()).into_owned();
+                        let stream = if ext == 1 { "stderr" } else { "extended" };
+                        let _ = app.emit(
+                            SSH_OUTPUT_EVENT,
+                            SshOutputEvent {
+                                session_id: session_id.clone(),
+                                stream: stream.into(),
+                                data_base64: STANDARD.encode(data.as_ref()),
+                                text,
+                            },
+                        );
+                    }
+                    ChannelMsg::ExitStatus { exit_status } => {
+                        let _ = app.emit(
+                            SSH_LIFECYCLE_EVENT,
+                            SshLifecycleEvent {
+                                session_id: session_id.clone(),
+                                state: "exit-status".into(),
+                                message: Some(format!("远端进程退出码：{exit_status}")),
+                            },
+                        );
+                    }
+                    ChannelMsg::ExitSignal { signal_name, .. } => {
+                        let _ = app.emit(
+                            SSH_LIFECYCLE_EVENT,
+                            SshLifecycleEvent {
+                                session_id: session_id.clone(),
+                                state: "exit-signal".into(),
+                                message: Some(format!("远端收到退出信号：{signal_name:?}")),
+                            },
+                        );
+                    }
+                    ChannelMsg::Eof => {
+                        let _ = app.emit(
+                            SSH_LIFECYCLE_EVENT,
+                            SshLifecycleEvent {
+                                session_id: session_id.clone(),
+                                state: "eof".into(),
+                                message: Some("SSH channel EOF".into()),
+                            },
+                        );
+                    }
+                    ChannelMsg::Close => {
+                        saw_close = true;
+                        let _ = app.emit(
+                            SSH_LIFECYCLE_EVENT,
+                            SshLifecycleEvent {
+                                session_id: session_id.clone(),
+                                state: "closed".into(),
+                                message: Some("SSH channel 已关闭".into()),
+                            },
+                        );
+                        break;
+                    }
+                    ChannelMsg::OpenFailure(reason) => {
+                        let _ = app.emit(
+                            SSH_LIFECYCLE_EVENT,
+                            SshLifecycleEvent {
+                                session_id: session_id.clone(),
+                                state: "error".into(),
+                                message: Some(format!("SSH channel open failure: {reason:?}")),
+                            },
+                        );
+                    }
+                    _ => {}
+                }
+            }
+
+            if !saw_close {
+                let _ = app.emit(
+                    SSH_LIFECYCLE_EVENT,
+                    SshLifecycleEvent {
+                        session_id: session_id.clone(),
+                        state: "closed".into(),
+                        message: Some("SSH channel 读取循环结束".into()),
+                    },
+                );
+            }
+
+            if let Some(mut removed) = sessions.write().await.remove(&session_id) {
+                if let Some(task) = removed.keepalive_task.take() {
+                    task.abort();
+                }
+            }
+        });
     }
 
     async fn run_preflight(&self, input: &SanitizedConnectInput) -> Result<()> {
@@ -351,7 +656,12 @@ impl SshSessionManager {
         Ok(())
     }
 
-    fn spawn_keepalive_loop(&self, session_id: String) -> JoinHandle<()> {
+    fn spawn_keepalive_loop(
+        &self,
+        session_id: String,
+        target: KeepaliveTarget,
+        transport: SessionTransport,
+    ) -> JoinHandle<()> {
         let app = self.app.clone();
         let sessions = self.sessions.clone();
 
@@ -364,12 +674,30 @@ impl SshSessionManager {
                     break;
                 }
 
+                match &target {
+                    KeepaliveTarget::MockBridge => {}
+                    KeepaliveTarget::Russh(handle) => {
+                        let mut handle = handle.lock().await;
+                        if let Err(error) = handle.send_keepalive(true).await {
+                            let _ = app.emit(
+                                SSH_LIFECYCLE_EVENT,
+                                SshLifecycleEvent {
+                                    session_id: session_id.clone(),
+                                    state: "keepalive-error".into(),
+                                    message: Some(format!("russh keepalive 失败：{error}")),
+                                },
+                            );
+                            break;
+                        }
+                    }
+                }
+
                 let _ = app.emit(
                     SSH_LIFECYCLE_EVENT,
                     SshLifecycleEvent {
                         session_id: session_id.clone(),
                         state: "keepalive".into(),
-                        message: Some(SessionTransport::MockBridge.keepalive_message()),
+                        message: Some(transport.keepalive_message()),
                     },
                 );
             }
