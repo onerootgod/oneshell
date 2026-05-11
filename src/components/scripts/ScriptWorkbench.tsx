@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  buildRemoteScriptCommand,
   getScriptEntryDetail,
   getScriptWorkspaceRoot,
   listScriptEntries,
@@ -26,6 +27,7 @@ export default function ScriptWorkbench({
   const [detail, setDetail] = useState<ScriptEntryDetail | null>(null);
   const [status, setStatus] = useState("🧭 正在检查脚本工作站");
   const [execution, setExecution] = useState<ScriptExecutionResult | null>(null);
+  const [argsText, setArgsText] = useState("");
 
   const selectedEntry = useMemo(
     () => entries.find((entry) => entry.path === selectedPath) ?? null,
@@ -83,7 +85,10 @@ export default function ScriptWorkbench({
     if (!detail) return;
     setStatus(`🧪 正在本地执行：${detail.summary.name}`);
     try {
-      const result = await runLocalScript({ path: detail.summary.path });
+      const result = await runLocalScript({
+        path: detail.summary.path,
+        args: splitArgs(argsText)
+      });
       setExecution(result);
       setStatus(
         result.exitCode === 0
@@ -97,8 +102,12 @@ export default function ScriptWorkbench({
 
   async function handleInjectRemote() {
     if (!detail) return;
-    await onInjectRemote(`${detail.suggestedRemoteCommand}\r`);
-    setStatus(`🚀 已注入远端执行命令：${detail.suggestedRemoteCommand}`);
+    const command = await buildRemoteScriptCommand({
+      path: detail.summary.path,
+      args: splitArgs(argsText)
+    });
+    await onInjectRemote(`${command}\r`);
+    setStatus(`🚀 已注入远端执行命令：${detail.summary.name}`);
   }
 
   return (
@@ -197,6 +206,21 @@ export default function ScriptWorkbench({
 
             {detail ? (
               <>
+                <label className="mt-4 block">
+                  <span className="mb-1 block text-xs uppercase tracking-[0.18em] text-slate-500">
+                    参数模板
+                  </span>
+                  <input
+                    className="w-full rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-sm text-slate-100 outline-none"
+                    value={argsText}
+                    onChange={(event) => setArgsText(event.target.value)}
+                    placeholder="例如：--region us-phoenix-1 --tag 发布🚀"
+                  />
+                  <span className="mt-2 block text-xs text-slate-500">
+                    当前采用轻量空格分词，支持单引号和双引号包裹参数。
+                  </span>
+                </label>
+
                 <div className="mt-4 grid gap-3 md:grid-cols-2">
                   <div className="rounded-xl border border-white/10 bg-black/10 px-3 py-3 text-sm text-slate-300">
                     <p className="text-xs uppercase tracking-[0.18em] text-slate-500">
@@ -252,4 +276,47 @@ export default function ScriptWorkbench({
       </div>
     </section>
   );
+}
+
+function splitArgs(value: string): string[] {
+  const trimmed = value.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  const args: string[] = [];
+  let current = "";
+  let quote: "'" | '"' | null = null;
+
+  for (const char of trimmed) {
+    if (quote) {
+      if (char === quote) {
+        quote = null;
+      } else {
+        current += char;
+      }
+      continue;
+    }
+
+    if (char === "'" || char === '"') {
+      quote = char;
+      continue;
+    }
+
+    if (/\s/.test(char)) {
+      if (current) {
+        args.push(current);
+        current = "";
+      }
+      continue;
+    }
+
+    current += char;
+  }
+
+  if (current) {
+    args.push(current);
+  }
+
+  return args;
 }

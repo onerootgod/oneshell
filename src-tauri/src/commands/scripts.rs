@@ -1,7 +1,8 @@
 use crate::{
     app_state::AppState,
     modules::models::{
-        RunLocalScriptInput, ScriptEntryDetail, ScriptEntrySummary, ScriptExecutionResult,
+        BuildRemoteScriptCommandInput, RunLocalScriptInput, ScriptEntryDetail,
+        ScriptEntrySummary, ScriptExecutionResult,
     },
 };
 use tauri::State;
@@ -36,6 +37,17 @@ pub async fn run_local_script(
         .scripts
         .run_local_script(input)
         .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn build_remote_script_command(
+    input: BuildRemoteScriptCommandInput,
+    state: State<'_, AppState>,
+) -> Result<String, String> {
+    state
+        .scripts
+        .build_remote_script_command(input)
         .map_err(|error| error.to_string())
 }
 

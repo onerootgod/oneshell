@@ -141,6 +141,13 @@ pub struct RunLocalScriptInput {
     pub args: Option<Vec<String>>,
 }
 
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct BuildRemoteScriptCommandInput {
+    pub path: String,
+    pub args: Option<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ScriptExecutionResult {

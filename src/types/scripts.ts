@@ -20,6 +20,11 @@ export type RunLocalScriptInput = {
   args?: string[];
 };
 
+export type BuildRemoteScriptCommandInput = {
+  path: string;
+  args?: string[];
+};
+
 export type ScriptExecutionResult = {
   command: string;
   exitCode: number;

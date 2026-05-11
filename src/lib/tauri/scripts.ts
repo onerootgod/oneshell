@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
+  BuildRemoteScriptCommandInput,
   RunLocalScriptInput,
   ScriptEntryDetail,
   ScriptEntrySummary,
@@ -18,6 +19,12 @@ export async function runLocalScript(
   input: RunLocalScriptInput
 ): Promise<ScriptExecutionResult> {
   return invoke<ScriptExecutionResult>("run_local_script", { input });
+}
+
+export async function buildRemoteScriptCommand(
+  input: BuildRemoteScriptCommandInput
+): Promise<string> {
+  return invoke<string>("build_remote_script_command", { input });
 }
 
 export async function getScriptWorkspaceRoot(): Promise<string> {

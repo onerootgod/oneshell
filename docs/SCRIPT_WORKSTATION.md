@@ -76,6 +76,21 @@ type ScriptExecutionResult = {
 };
 ```
 
+### `build_remote_script_command`
+
+输入：
+
+```ts
+type BuildRemoteScriptCommandInput = {
+  path: string;
+  args?: string[];
+};
+```
+
+输出：
+
+- `string`
+
 ### `get_script_workspace_root`
 
 输出：
@@ -94,6 +109,20 @@ type ScriptExecutionResult = {
 - 本地执行：`bash <script.sh>`
 - 远端注入：`bash -s <<'SH' ... SH`
 
+## 🧪 参数支持
+
+当前脚本工作站已经支持参数输入：
+
+- 本地执行参数：通过 `run_local_script.args`
+- 远端注入参数：通过 `build_remote_script_command.args`
+
+当前参数解析规则：
+
+- 默认按空格分词
+- 支持单引号
+- 支持双引号
+- 暂不支持复杂转义语法
+
 ## 🔐 当前安全边界
 
 - 只允许 `~/NexusScripts` 根目录内的脚本
@@ -110,7 +139,7 @@ type ScriptExecutionResult = {
 
 ## ⏭️ 下一步最高优先级
 
-1. 给脚本工作站补参数输入 UI
-2. 支持保存常用脚本运行模板
-3. 把脚本工作站的远端注入升级成“上传后执行 / 内联执行 + 参数模板”
-4. 在真实 SSH transport 之上接 SFTP 文件分发能力
+1. 支持保存常用脚本运行模板
+2. 把脚本工作站的远端注入升级成“上传后执行 / 内联执行 + 参数模板”
+3. 在真实 SSH transport 之上接 SFTP 文件分发能力
+4. 为脚本执行结果补历史与收藏视图

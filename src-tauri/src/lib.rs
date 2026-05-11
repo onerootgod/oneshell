@@ -13,6 +13,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::scripts::build_remote_script_command,
             commands::scripts::get_script_entry_detail,
             commands::scripts::get_script_workspace_root,
             commands::scripts::list_script_entries,

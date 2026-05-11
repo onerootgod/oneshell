@@ -1,5 +1,6 @@
 use crate::modules::models::{
-    RunLocalScriptInput, ScriptEntryDetail, ScriptEntrySummary, ScriptExecutionResult,
+    BuildRemoteScriptCommandInput, RunLocalScriptInput, ScriptEntryDetail, ScriptEntrySummary,
+    ScriptExecutionResult,
 };
 use anyhow::{bail, Context, Result};
 use std::{
@@ -47,11 +48,25 @@ impl ScriptWorkspace {
             .with_context(|| format!("failed to read script content: {}", target.display()))?;
         let kind = script_kind(&target);
         Ok(ScriptEntryDetail {
-            suggested_remote_command: build_remote_command(kind, &content),
+            suggested_remote_command: build_remote_command(kind, &content, &[]),
             local_runner: build_local_runner(&target),
             summary,
             content,
         })
+    }
+
+    pub fn build_remote_script_command(
+        &self,
+        input: BuildRemoteScriptCommandInput,
+    ) -> Result<String> {
+        let target = self.resolve_script_path(&input.path)?;
+        let content = fs::read_to_string(&target)
+            .with_context(|| format!("failed to read script content: {}", target.display()))?;
+        Ok(build_remote_command(
+            script_kind(&target),
+            &content,
+            &input.args.unwrap_or_default(),
+        ))
     }
 
     pub async fn run_local_script(
@@ -173,14 +188,16 @@ fn command_for_script(path: &Path) -> Result<(&'static str, Vec<String>)> {
     }
 }
 
-fn build_remote_command(kind: &str, content: &str) -> String {
+fn build_remote_command(kind: &str, content: &str, args: &[String]) -> String {
     match kind {
         "python" => format!(
-            "python3 - <<'PY'\n{}\nPY",
+            "python3 -{} <<'PY'\n{}\nPY",
+            render_shell_args(args),
             content.trim_end_matches('\n')
         ),
         "shell" => format!(
-            "bash -s <<'SH'\n{}\nSH",
+            "bash -s{} <<'SH'\n{}\nSH",
+            render_bash_args(args),
             content.trim_end_matches('\n')
         ),
         _ => content.to_owned(),
@@ -202,6 +219,34 @@ fn render_command(program: &str, base_args: &[String], target: &Path, args: &[St
     parts.push(shell_quote(target.to_string_lossy().as_ref()));
     parts.extend(args.iter().map(|arg| shell_quote(arg)));
     parts.join(" ")
+}
+
+fn render_shell_args(args: &[String]) -> String {
+    if args.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " {}",
+            args.iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
+}
+
+fn render_bash_args(args: &[String]) -> String {
+    if args.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " -- {}",
+            args.iter()
+                .map(|arg| shell_quote(arg))
+                .collect::<Vec<_>>()
+                .join(" ")
+        )
+    }
 }
 
 fn shell_quote(value: &str) -> String {
