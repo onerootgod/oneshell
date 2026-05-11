@@ -69,6 +69,23 @@
 - 做了哪些验证
 - 当前最大阻塞是什么
 
+## 🍎 macOS 通用包要求
+
+OneShell 的 macOS 交付，默认必须同时支持：
+
+- `Apple Silicon (arm64)`
+- `Intel (x86_64)`
+
+不要把发布链退回成“只支持 M 芯片”或“只支持 Intel”。
+
+默认构建目标：
+
+- `universal-apple-darwin`
+
+默认最低系统版本：
+
+- `macOS 12.0`
+
 ## 🧩 当前仓库状态
 
 当前仓库已经完成：

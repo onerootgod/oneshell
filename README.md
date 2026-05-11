@@ -44,6 +44,7 @@ OneShell 要解决的核心问题：
 - ✅ `WebGL -> canvas` 渲染回退策略
 - ✅ macOS 字体回退顺序：
   `JetBrainsMono Nerd Font -> Apple Color Emoji -> Menlo -> monospace`
+- ✅ macOS 通用构建链路骨架（`Intel + Apple Silicon`）
 
 ## 🎯 当前主线怎么推
 
@@ -88,6 +89,7 @@ oneshell/
 - 🏗️ [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)：系统架构、边界和模块分层
 - 🗺️ [docs/ROADMAP.md](./docs/ROADMAP.md)：阶段路线图、优先级与交付口径
 - 🔌 [docs/SSH_RUNTIME.md](./docs/SSH_RUNTIME.md)：SSH 前后端事件桥与 command 契约
+- 🍎 [docs/BUILD_MACOS_UNIVERSAL.md](./docs/BUILD_MACOS_UNIVERSAL.md)：Intel + M 芯片通用构建说明
 
 ## ⚠️ 硬性原则
 
@@ -104,6 +106,19 @@ oneshell/
 npm install
 npm run tauri:dev
 ```
+
+## 🍎 通用打包
+
+```bash
+npm run build:macos:universal
+```
+
+这条链路会生成支持：
+
+- `arm64`
+- `x86_64`
+
+的通用 macOS `.app / .dmg`。
 
 ## 📝 说明
 

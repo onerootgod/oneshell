@@ -1,0 +1,44 @@
+name: macOS Universal Build
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  universal-macos:
+    runs-on: macos-14
+    steps:
+      - name: 📥 Checkout
+        uses: actions/checkout@v4
+
+      - name: 🟢 Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: 🦀 Setup Rust targets
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
+      - name: 📦 Install frontend dependencies
+        run: npm install
+
+      - name: 🚀 Build universal macOS app
+        run: npm run tauri:build:universal
+
+      - name: ✅ Verify universal bundle
+        run: |
+          APP_PATH="$(find src-tauri/target/universal-apple-darwin/release/bundle -type d -name 'OneShell.app' | head -n 1)"
+          bash ./scripts/verify_macos_universal.sh "$APP_PATH"
+
+      - name: 📤 Upload macOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: oneshell-macos-universal
+          path: |
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.app
+            src-tauri/target/universal-apple-darwin/release/bundle/**/*.dmg
+          if-no-files-found: error

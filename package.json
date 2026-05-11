@@ -8,7 +8,10 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:universal": "tauri build --target universal-apple-darwin --bundles app,dmg --ci --no-sign",
+    "build:macos:universal": "bash ./scripts/build_macos_universal.sh",
+    "verify:macos:universal": "bash ./scripts/verify_macos_universal.sh"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",
