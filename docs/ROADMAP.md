@@ -1,53 +1,124 @@
-# OneShell Roadmap
+# 🗺️ OneShell 路线图
 
-## Phase 1
+## ✅ Phase 1：重建底座
 
-Foundation complete:
+当前已完成：
 
-- Tauri shell bootstrapped
-- React + Tailwind frontend bootstrapped
-- SQLCipher database bootstrapped
-- AES-GCM secret encryption bootstrapped
+- ✅ GitHub 仓库重建
+- ✅ 本地 git 历史重置
+- ✅ 只保留新的 Tauri 主线
+- ✅ React + Tailwind 基础工程
+- ✅ Rust + Tauri 基础工程
+- ✅ SQLCipher 数据库初始化
+- ✅ AES-GCM 密码字段加密
 
-## Phase 2
+交付口径：
 
-Terminal rendering in progress:
+- 这阶段不是产品功能完成
+- 这阶段的目标是把“干净架构底座”搭起来
 
-- xterm.js integrated
-- Unicode11 handling integrated
-- WebGL-first renderer strategy integrated
-- macOS font fallback strategy integrated
+## ✅ Phase 2：终端渲染底座
 
-## Phase 3
+当前已完成：
 
-Next active milestone:
+- ✅ `xterm.js` 接入
+- ✅ `Unicode11` 宽度处理接入
+- ✅ `WebGL -> canvas` 回退策略接入
+- ✅ macOS 字体回退策略接入
+- ✅ 终端表面原型接入 React 主界面
 
-- Rust SSH connection manager
-- SOCKS5 proxy support
-- stdin / stdout event bridge
-- keep-alive and resize handling
+当前还没完成：
 
-## Phase 4
+- ⏳ 真正 SSH stdout 流接入终端
+- ⏳ 真正用户输入回传 Rust runtime
+- ⏳ 选择、搜索、滚动等深层交互
 
-Script workstation:
+## 🎯 Phase 3：SSH 主链路
 
-- scan local script directory
-- expose script inventory to frontend
-- local execution or remote injection
+下一优先级最高的阶段：
 
-## Phase 5
+- 🔌 Rust SSH 连接管理器
+- 🌍 SOCKS5 代理支持
+- 📡 Tauri 事件桥
+- ❤️ keep-alive
+- 📐 PTY resize
 
-SFTP runtime:
+阶段完成标准：
 
-- file listing
-- upload / download / delete
-- UTF-8 and emoji-safe filenames
-- async large file transfer path
+- 前端能发起 SSH 连接
+- 后端能把终端输出实时推回前端
+- 代理连接链路可用
 
-## Phase 6
+## 🧰 Phase 4：脚本工作站
 
-License and advanced features:
+目标：
 
-- machine code generation
-- local license verification
-- premium gate for advanced SFTP and script capabilities
+- 扫描固定脚本目录
+- 前端列出 `.py` / `.sh`
+- 支持本地执行
+- 支持注入到远端 SSH 会话执行
+
+阶段完成标准：
+
+- 脚本列表能展示
+- 脚本执行结果能反馈到工作台
+
+## 📂 Phase 5：SFTP 文件管理
+
+目标：
+
+- 文件列表
+- 上传
+- 下载
+- 删除
+- UTF-8 / 中文 / Emoji 文件名支持
+- 大文件异步传输
+
+阶段完成标准：
+
+- 前端拿到标准文件树 JSON
+- 典型中文 / Emoji 文件名传输不乱码
+
+## 👑 Phase 6：本地 license 与高级功能
+
+目标：
+
+- 获取机器码
+- 校验本地 license
+- 解锁高级功能
+
+优先解锁方向：
+
+- 多线程 SFTP
+- 更高脚本容量
+- 更强工作台能力
+
+## 🚦 当前默认推进顺序
+
+如果用户没有单独改优先级，就按这个顺序继续：
+
+1. 🖥️ 终端主渲染链路继续补完
+2. 🔌 SSH runtime + SOCKS5
+3. 📡 Tauri 事件桥
+4. 🧰 脚本工作站
+5. 📂 SFTP
+6. 👑 license / 高级功能
+
+## 📝 交付规则
+
+后续任何 agent 推进时，汇报必须包含：
+
+- ✅ 这次具体推进了什么
+- ✅ 改了哪些关键文件
+- ✅ 做了哪些验证
+- ✅ 当前最大阻塞是什么
+
+## ⚠️ 注意
+
+这个仓库现在的价值，不是“功能很多”，而是“方向非常干净”。
+
+所以任何推进都要优先保护这三件事：
+
+- 架构单一
+- 文档一致
+- 不重新污染
