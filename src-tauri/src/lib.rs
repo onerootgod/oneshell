@@ -15,6 +15,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::ssh::connect_ssh_session,
             commands::ssh::disconnect_ssh_session,
+            commands::ssh::get_ssh_runtime_capabilities,
             commands::ssh::list_ssh_sessions,
             commands::ssh::resize_ssh_session,
             commands::ssh::send_ssh_input,

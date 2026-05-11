@@ -41,6 +41,7 @@ export default function MacTerminal() {
   const {
     session,
     knownSessions,
+    capabilities,
     status,
     lastError,
     connect,
@@ -379,6 +380,20 @@ export default function MacTerminal() {
             <p>
               🔌 当前终端已经接上了 Tauri SSH 事件桥约定，下一步只差 Rust runtime 真正发出
               `ssh-output` / `ssh-lifecycle` 事件。
+            </p>
+            <p>
+              🧠 当前 runtime：
+              <span className="font-medium text-slate-100">
+                {" "}
+                {capabilities?.transportMode ?? "未发现"}
+              </span>
+            </p>
+            <p>
+              ❤️ keep-alive：
+              <span className="font-medium text-slate-100">
+                {" "}
+                {capabilities?.supportsKeepAlive ? "已声明支持" : "未声明"}
+              </span>
             </p>
             <p>
               📡 已知会话：<span className="font-medium text-slate-100">{knownSessions.length}</span>

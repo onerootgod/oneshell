@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   connectSshSession,
   disconnectSshSession,
+  getSshRuntimeCapabilities,
   listSshSessions,
   listenSshLifecycle,
   listenSshOutput,
@@ -12,6 +13,7 @@ import type {
   SshConnectInput,
   SshLifecycleEvent,
   SshOutputEvent,
+  SshRuntimeCapabilities,
   SshSessionSummary
 } from "../types/ssh";
 
@@ -26,6 +28,7 @@ export function useSshTerminalSession({
 }: UseSshTerminalSessionOptions) {
   const [session, setSession] = useState<SshSessionSummary | null>(null);
   const [knownSessions, setKnownSessions] = useState<SshSessionSummary[]>([]);
+  const [capabilities, setCapabilities] = useState<SshRuntimeCapabilities | null>(null);
   const [status, setStatus] = useState("🚧 等待连接");
   const [lastError, setLastError] = useState<string | null>(null);
 
@@ -47,6 +50,13 @@ export function useSshTerminalSession({
         if (!mounted) return;
         setStatus("🧪 后端 SSH 命令尚未连通");
       });
+
+    void getSshRuntimeCapabilities()
+      .then((nextCapabilities) => {
+        if (!mounted) return;
+        setCapabilities(nextCapabilities);
+      })
+      .catch(() => undefined);
 
     void listenSshOutput((event) => {
       onOutput(event);
@@ -140,6 +150,7 @@ export function useSshTerminalSession({
   return {
     session,
     knownSessions,
+    capabilities,
     status,
     lastError,
     connect,

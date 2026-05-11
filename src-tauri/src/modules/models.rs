@@ -54,9 +54,24 @@ pub struct SshSessionSummary {
     pub port: u16,
     pub username: String,
     pub proxy_host: Option<String>,
+    pub proxy_auth_enabled: bool,
     pub connected_at: i64,
+    pub keep_alive_seconds: u64,
+    pub transport_mode: String,
     pub cols: u32,
     pub rows: u32,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SshRuntimeCapabilities {
+    pub transport_mode: String,
+    pub supports_password_auth: bool,
+    pub supports_socks5_proxy: bool,
+    pub supports_proxy_auth: bool,
+    pub supports_keep_alive: bool,
+    pub supports_resize: bool,
+    pub supports_lifecycle_events: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]

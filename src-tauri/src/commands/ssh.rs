@@ -1,6 +1,9 @@
 use crate::{
     app_state::AppState,
-    modules::models::{SshConnectInput, SshInputPacket, SshResizeInput, SshSessionSummary},
+    modules::models::{
+        SshConnectInput, SshInputPacket, SshResizeInput, SshRuntimeCapabilities,
+        SshSessionSummary,
+    },
 };
 use tauri::State;
 
@@ -65,6 +68,17 @@ pub async fn list_ssh_sessions(
     state
         .ssh
         .list_sessions()
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn get_ssh_runtime_capabilities(
+    state: State<'_, AppState>,
+) -> Result<SshRuntimeCapabilities, String> {
+    state
+        .ssh
+        .runtime_capabilities()
         .await
         .map_err(|error| error.to_string())
 }

@@ -6,6 +6,7 @@ import type {
   SshLifecycleEvent,
   SshOutputEvent,
   SshResizeInput,
+  SshRuntimeCapabilities,
   SshSessionSummary
 } from "../../types/ssh";
 
@@ -32,6 +33,10 @@ export async function disconnectSshSession(sessionId: string): Promise<void> {
 
 export async function listSshSessions(): Promise<SshSessionSummary[]> {
   return invoke<SshSessionSummary[]>("list_ssh_sessions");
+}
+
+export async function getSshRuntimeCapabilities(): Promise<SshRuntimeCapabilities> {
+  return invoke<SshRuntimeCapabilities>("get_ssh_runtime_capabilities");
 }
 
 export async function listenSshOutput(

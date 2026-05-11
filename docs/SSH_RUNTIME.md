@@ -147,6 +147,22 @@ type SshResizeInput = {
 
 - `SshSessionSummary[]`
 
+### `get_ssh_runtime_capabilities`
+
+输出：
+
+```ts
+type SshRuntimeCapabilities = {
+  transportMode: string;
+  supportsPasswordAuth: boolean;
+  supportsSocks5Proxy: boolean;
+  supportsProxyAuth: boolean;
+  supportsKeepAlive: boolean;
+  supportsResize: boolean;
+  supportsLifecycleEvents: boolean;
+};
+```
+
 ## 🧭 当前前端已接入的文件
 
 - `src/types/ssh.ts`

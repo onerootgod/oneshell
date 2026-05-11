@@ -1,5 +1,6 @@
 use crate::modules::models::{
-    SshConnectInput, SshLifecycleEvent, SshOutputEvent, SshSessionSummary,
+    SshConnectInput, SshLifecycleEvent, SshOutputEvent, SshRuntimeCapabilities,
+    SshSessionSummary,
 };
 use anyhow::{anyhow, bail, Context, Result};
 use base64::{engine::general_purpose::STANDARD, Engine as _};
@@ -14,6 +15,8 @@ use uuid::Uuid;
 
 pub const SSH_OUTPUT_EVENT: &str = "ssh-output";
 pub const SSH_LIFECYCLE_EVENT: &str = "ssh-lifecycle";
+const MOCK_TRANSPORT_MODE: &str = "mock-russh-bridge";
+const KEEP_ALIVE_SECONDS: u64 = 20;
 
 #[derive(Clone)]
 pub struct SshSessionManager {
@@ -50,7 +53,10 @@ impl SshSessionManager {
                 .proxy
                 .as_ref()
                 .map(|proxy| format!("{}:{}", proxy.host, proxy.port)),
+            proxy_auth_enabled: sanitized.proxy_auth_enabled,
             connected_at: current_timestamp(),
+            keep_alive_seconds: KEEP_ALIVE_SECONDS,
+            transport_mode: MOCK_TRANSPORT_MODE.into(),
             cols: sanitized.cols,
             rows: sanitized.rows,
         };
@@ -171,6 +177,18 @@ impl SshSessionManager {
             .collect())
     }
 
+    pub async fn runtime_capabilities(&self) -> Result<SshRuntimeCapabilities> {
+        Ok(SshRuntimeCapabilities {
+            transport_mode: MOCK_TRANSPORT_MODE.into(),
+            supports_password_auth: true,
+            supports_socks5_proxy: true,
+            supports_proxy_auth: true,
+            supports_keep_alive: true,
+            supports_resize: true,
+            supports_lifecycle_events: true,
+        })
+    }
+
     fn emit_output(&self, session_id: &str, stream: &str, text: &str) -> Result<()> {
         self.app
             .emit(
@@ -205,6 +223,7 @@ struct SanitizedConnectInput {
     username: String,
     password: String,
     proxy: Option<SanitizedProxyConfig>,
+    proxy_auth_enabled: bool,
     term_type: String,
     cols: u32,
     rows: u32,
@@ -239,6 +258,11 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
             port: proxy.port,
         })
         .filter(|proxy| !proxy.host.is_empty());
+    let proxy_auth_enabled = input
+        .proxy
+        .as_ref()
+        .map(|proxy| proxy.username.as_ref().is_some() || proxy.password.as_ref().is_some())
+        .unwrap_or(false);
 
     Ok(SanitizedConnectInput {
         host,
@@ -246,6 +270,7 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
         username,
         password,
         proxy,
+        proxy_auth_enabled,
         term_type,
         cols: input.cols.unwrap_or(120).max(40),
         rows: input.rows.unwrap_or(32).max(12),

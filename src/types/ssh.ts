@@ -24,9 +24,22 @@ export type SshSessionSummary = {
   port: number;
   username: string;
   proxyHost?: string;
+  proxyAuthEnabled: boolean;
   connectedAt: number;
+  keepAliveSeconds: number;
+  transportMode: string;
   cols: number;
   rows: number;
+};
+
+export type SshRuntimeCapabilities = {
+  transportMode: string;
+  supportsPasswordAuth: boolean;
+  supportsSocks5Proxy: boolean;
+  supportsProxyAuth: boolean;
+  supportsKeepAlive: boolean;
+  supportsResize: boolean;
+  supportsLifecycleEvents: boolean;
 };
 
 export type SshInputPacket = {
