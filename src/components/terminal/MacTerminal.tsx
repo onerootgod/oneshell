@@ -5,7 +5,12 @@ import { Unicode11Addon } from "xterm-addon-unicode11";
 import { WebglAddon } from "xterm-addon-webgl";
 import "xterm/css/xterm.css";
 import { useSshTerminalSession } from "../../hooks/useSshTerminalSession";
-import type { SshConnectInput, SshLifecycleEvent, SshOutputEvent } from "../../types/ssh";
+import type {
+  SshConnectInput,
+  SshHostKeyPolicy,
+  SshLifecycleEvent,
+  SshOutputEvent
+} from "../../types/ssh";
 import {
   listServerProfiles,
   saveServerProfile
@@ -42,6 +47,9 @@ export default function MacTerminal() {
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyHost, setProxyHost] = useState("127.0.0.1");
   const [proxyPort, setProxyPort] = useState("7891");
+  const [hostKeyPolicy, setHostKeyPolicy] =
+    useState<SshHostKeyPolicy>("accept-new");
+  const [knownHostsPath, setKnownHostsPath] = useState("~/.ssh/known_hosts");
   const [savedProfiles, setSavedProfiles] = useState<ServerProfileSummary[]>([]);
   const [profilesStatus, setProfilesStatus] = useState("📁 正在读取连接收藏");
 
@@ -66,6 +74,17 @@ export default function MacTerminal() {
     }
     return `${username || "user"}@${host || "host"}:${port || "22"}`;
   }, [host, port, session, username]);
+
+  const hostKeyPolicySummary = useMemo(() => {
+    switch (hostKeyPolicy) {
+      case "strict":
+        return "🔐 严格校验";
+      case "accept-new":
+        return "🪪 首次接受";
+      case "off":
+        return "⚠️ 关闭校验";
+    }
+  }, [hostKeyPolicy]);
 
   useEffect(() => {
     sendRef.current = send;
@@ -213,6 +232,8 @@ export default function MacTerminal() {
       port: Number(port) || 22,
       username,
       password,
+      hostKeyPolicy,
+      knownHostsPath: knownHostsPath.trim() || undefined,
       termType: "xterm-256color",
       proxy: proxyEnabled
         ? {
@@ -370,6 +391,36 @@ export default function MacTerminal() {
               </div>
             ) : null}
 
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">Host Key</span>
+                <select
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                  value={hostKeyPolicy}
+                  onChange={(event) =>
+                    setHostKeyPolicy(event.target.value as SshHostKeyPolicy)
+                  }
+                >
+                  <option value="strict">严格校验</option>
+                  <option value="accept-new">首次接受</option>
+                  <option value="off">关闭校验</option>
+                </select>
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">known_hosts</span>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                  value={knownHostsPath}
+                  onChange={(event) => setKnownHostsPath(event.target.value)}
+                  placeholder="~/.ssh/known_hosts"
+                />
+              </label>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              {hostKeyPolicySummary} · 当前策略会在 Rust SSH runtime 中生效
+            </p>
+
             <div className="flex gap-3">
               <button
                 className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950"
@@ -487,8 +538,8 @@ export default function MacTerminal() {
               </span>
             </p>
             <p>
-              🔌 当前终端已经接上了 Tauri SSH 事件桥约定，下一步只差 Rust runtime 真正发出
-              `ssh-output` / `ssh-lifecycle` 事件。
+              🔌 当前终端已经接上了 Tauri SSH 事件桥，后端会把真实 `ssh-output` /
+              `ssh-lifecycle` 事件回推到前端。
             </p>
             <p>
               🧠 当前 runtime：
@@ -502,6 +553,13 @@ export default function MacTerminal() {
               <span className="font-medium text-slate-100">
                 {" "}
                 {capabilities?.supportsKeepAlive ? "已声明支持" : "未声明"}
+              </span>
+            </p>
+            <p>
+              🔐 Host Key：
+              <span className="font-medium text-slate-100">
+                {" "}
+                {capabilities?.supportsHostKeyPolicy ? hostKeyPolicySummary : "未声明"}
               </span>
             </p>
             <p>

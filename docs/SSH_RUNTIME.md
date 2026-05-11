@@ -187,6 +187,10 @@ type SshRuntimeCapabilities = {
 - `connect` 成功后会继续进入 `russh` 真正握手、密码认证、PTY 请求和交互式 shell 建立
 - `stdout / stderr / exit-status / eof / closed` 已开始走真实 channel 读循环回推前端
 - keepalive 已开始按 `russh` handle 周期性发出
+- host key 已支持三态策略：
+  - `strict`
+  - `accept-new`
+  - `off`
 
 ## ✅ 当前已经接通的真实链路
 
@@ -218,9 +222,27 @@ type SshRuntimeCapabilities = {
 
 当前仍然缺的部分是：
 
-- 更严格的 host key 策略，而不是默认放行
 - 更完整的认证模式，例如密钥认证
 - 连接中断后的自动重连与更细粒度错误分类
+
+## 🔐 Host Key 策略说明
+
+当前 SSH 表单和 Rust runtime 都已经支持三态策略：
+
+- `strict`
+  已知主机里必须存在完全匹配的 host key，否则拒绝连接。
+- `accept-new`
+  如果目标 host 还没有记录，就自动写入并接受；如果已经存在但不匹配，则拒绝连接。
+- `off`
+  直接放行，不校验 host key。
+
+当前 `known_hosts` 采用 OneShell 自己的极简持久化格式：
+
+- 每行一条
+- 结构：`host<TAB>openssh-public-key`
+- 前端传 `~/.ssh/known_hosts` 时，Rust runtime 会先展开 `~`
+
+这样做的目的是先把 Tauri 重建主线里的 host key 安全基线接通，后面再按需要升级成更完整的 OpenSSH known_hosts 兼容解析。
 
 ## 🧩 当前 Rust runtime 的分层方向
 

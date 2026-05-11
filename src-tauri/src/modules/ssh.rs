@@ -11,7 +11,9 @@ use russh::{
 };
 use std::{
     collections::HashMap,
+    fs,
     io::Cursor,
+    path::PathBuf,
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
@@ -70,16 +72,57 @@ enum KeepaliveTarget {
 }
 
 #[derive(Clone, Default)]
-struct RusshClientHandler;
+struct RusshClientHandler {
+    host: String,
+    host_key_policy: HostKeyPolicy,
+    known_hosts_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum HostKeyPolicy {
+    Strict,
+    AcceptNew,
+    Off,
+}
 
 impl client::Handler for RusshClientHandler {
     type Error = russh::Error;
 
     async fn check_server_key(
         &mut self,
-        _server_public_key: &ssh_key::PublicKey,
+        server_public_key: &ssh_key::PublicKey,
     ) -> std::result::Result<bool, Self::Error> {
-        Ok(true)
+        Ok(self
+            .verify_server_key(server_public_key)
+            .unwrap_or(false))
+    }
+}
+
+impl RusshClientHandler {
+    fn verify_server_key(&self, server_public_key: &ssh_key::PublicKey) -> Result<bool> {
+        match self.host_key_policy {
+            HostKeyPolicy::Off => Ok(true),
+            HostKeyPolicy::Strict | HostKeyPolicy::AcceptNew => {
+                let Some(path) = self.known_hosts_path.as_ref() else {
+                    return Ok(false);
+                };
+                let serialized = server_public_key
+                    .to_openssh()
+                    .context("failed to serialize ssh host key")?;
+                let known_hosts = read_known_hosts(path)?;
+
+                if let Some(existing_key) = known_hosts.get(&self.host) {
+                    return Ok(existing_key == &serialized);
+                }
+
+                if self.host_key_policy == HostKeyPolicy::AcceptNew {
+                    write_known_host(path, &self.host, &serialized)?;
+                    return Ok(true);
+                }
+
+                Ok(false)
+            }
+        }
     }
 }
 
@@ -174,6 +217,8 @@ impl SshSessionManager {
                 .as_ref()
                 .map(|proxy| format!("{}:{}", proxy.host, proxy.port)),
             proxy_auth_enabled: sanitized.proxy_auth_enabled,
+            host_key_policy: sanitized.host_key_policy.as_str().into(),
+            known_hosts_path: sanitized.known_hosts_path.clone(),
             connected_at: current_timestamp(),
             keep_alive_seconds: KEEP_ALIVE_SECONDS,
             transport_mode: transport.mode().into(),
@@ -365,6 +410,7 @@ impl SshSessionManager {
             supports_keep_alive: true,
             supports_resize: true,
             supports_lifecycle_events: true,
+            supports_host_key_policy: true,
         })
     }
 
@@ -397,18 +443,23 @@ impl SshSessionManager {
             inactivity_timeout: Some(Duration::from_secs(KEEP_ALIVE_SECONDS * 3)),
             ..Default::default()
         });
+        let handler = RusshClientHandler {
+            host: sanitized_host_key_label(input.host.as_str()),
+            host_key_policy: input.host_key_policy,
+            known_hosts_path: input.known_hosts_path.clone(),
+        };
 
         let mut handle = match &input.proxy {
             Some(proxy) => {
                 let stream = self.connect_proxy_stream(proxy, input).await?;
-                client::connect_stream(config, stream, RusshClientHandler)
+                client::connect_stream(config, stream, handler)
                     .await
                     .context("russh proxy transport connect_stream failed")?
             }
             None => client::connect(
                 config,
                 (input.host.as_str(), input.port),
-                RusshClientHandler,
+                handler,
             )
             .await
             .context("russh direct transport connect failed")?,
@@ -721,6 +772,8 @@ struct SanitizedConnectInput {
     password: String,
     proxy: Option<SanitizedProxyConfig>,
     proxy_auth_enabled: bool,
+    host_key_policy: HostKeyPolicy,
+    known_hosts_path: Option<String>,
     term_type: String,
     cols: u32,
     rows: u32,
@@ -732,6 +785,13 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
     let host = input.host.trim().to_owned();
     let username = input.username.trim().to_owned();
     let password = input.password;
+    let host_key_policy = parse_host_key_policy(input.host_key_policy.as_deref())?;
+    let known_hosts_path = input
+        .known_hosts_path
+        .map(|value| value.trim().to_owned())
+        .filter(|value| !value.is_empty())
+        .map(expand_tilde_path)
+        .or_else(default_known_hosts_path);
     let term_type = input
         .term_type
         .map(|value| value.trim().to_owned())
@@ -773,6 +833,8 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
         password,
         proxy,
         proxy_auth_enabled,
+        host_key_policy,
+        known_hosts_path,
         term_type,
         cols: input.cols.unwrap_or(120).max(40),
         rows: input.rows.unwrap_or(32).max(12),
@@ -786,4 +848,103 @@ fn current_timestamp() -> i64 {
         .duration_since(UNIX_EPOCH)
         .map(|duration| duration.as_secs() as i64)
         .unwrap_or_default()
+}
+
+impl HostKeyPolicy {
+    fn as_str(self) -> &'static str {
+        match self {
+            HostKeyPolicy::Strict => "strict",
+            HostKeyPolicy::AcceptNew => "accept-new",
+            HostKeyPolicy::Off => "off",
+        }
+    }
+}
+
+fn parse_host_key_policy(value: Option<&str>) -> Result<HostKeyPolicy> {
+    match value.unwrap_or("accept-new") {
+        "strict" => Ok(HostKeyPolicy::Strict),
+        "accept-new" => Ok(HostKeyPolicy::AcceptNew),
+        "off" => Ok(HostKeyPolicy::Off),
+        other => bail!("unsupported host key policy: {other}"),
+    }
+}
+
+fn default_known_hosts_path() -> Option<String> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join(".ssh")
+            .join("known_hosts")
+            .to_string_lossy()
+            .into_owned()
+    })
+}
+
+fn sanitized_host_key_label(host: &str) -> String {
+    host.trim().to_owned()
+}
+
+fn expand_tilde_path(path: String) -> String {
+    if path == "~" {
+        return std::env::var("HOME").unwrap_or(path);
+    }
+
+    if let Some(stripped) = path.strip_prefix("~/") {
+        if let Ok(home) = std::env::var("HOME") {
+            return PathBuf::from(home)
+                .join(stripped)
+                .to_string_lossy()
+                .into_owned();
+        }
+    }
+
+    path
+}
+
+fn read_known_hosts(path: &str) -> Result<HashMap<String, String>> {
+    let content = match fs::read_to_string(path) {
+        Ok(value) => value,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(HashMap::new()),
+        Err(error) => return Err(error).with_context(|| format!("failed to read known_hosts: {path}")),
+    };
+
+    let mut entries = HashMap::new();
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('#') {
+            continue;
+        }
+        let mut parts = trimmed.splitn(2, '\t');
+        let Some(host) = parts.next() else {
+            continue;
+        };
+        let Some(key) = parts.next() else {
+            continue;
+        };
+        entries.insert(host.to_owned(), key.to_owned());
+    }
+    Ok(entries)
+}
+
+fn write_known_host(path: &str, host: &str, key: &str) -> Result<()> {
+    let path = PathBuf::from(path);
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create known_hosts directory: {}", parent.display()))?;
+    }
+
+    let mut entries = read_known_hosts(path.to_string_lossy().as_ref())?;
+    entries.insert(host.to_owned(), key.to_owned());
+
+    let mut lines: Vec<String> = entries
+        .into_iter()
+        .map(|(stored_host, stored_key)| format!("{stored_host}\t{stored_key}"))
+        .collect();
+    lines.sort();
+    let payload = if lines.is_empty() {
+        String::new()
+    } else {
+        format!("{}\n", lines.join("\n"))
+    };
+    fs::write(&path, payload)
+        .with_context(|| format!("failed to write known_hosts: {}", path.display()))
 }

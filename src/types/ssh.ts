@@ -5,12 +5,16 @@ export type SshProxyInput = {
   password?: string;
 };
 
+export type SshHostKeyPolicy = "strict" | "accept-new" | "off";
+
 export type SshConnectInput = {
   host: string;
   port: number;
   username: string;
   password: string;
   proxy?: SshProxyInput;
+  hostKeyPolicy?: SshHostKeyPolicy;
+  knownHostsPath?: string;
   termType?: string;
   cols?: number;
   rows?: number;
@@ -25,6 +29,8 @@ export type SshSessionSummary = {
   username: string;
   proxyHost?: string;
   proxyAuthEnabled: boolean;
+  hostKeyPolicy: SshHostKeyPolicy;
+  knownHostsPath?: string;
   connectedAt: number;
   keepAliveSeconds: number;
   transportMode: string;
@@ -40,6 +46,7 @@ export type SshRuntimeCapabilities = {
   supportsKeepAlive: boolean;
   supportsResize: boolean;
   supportsLifecycleEvents: boolean;
+  supportsHostKeyPolicy: boolean;
 };
 
 export type SshInputPacket = {
