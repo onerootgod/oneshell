@@ -182,6 +182,7 @@ type SshRuntimeCapabilities = {
 - Rust 侧会话注册表与事件发射骨架
 - `connect / send_input / resize / disconnect / list_sessions` command handler
 - mock keepalive lifecycle tick
+- transport 已开始按独立枚举分层，便于把 mock bridge 替换成真实 `russh` transport
 
 ## ⛔ 当前最大缺口
 
@@ -192,6 +193,18 @@ type SshRuntimeCapabilities = {
 - `state = "keepalive"`
 
 这能帮助前端先把 lifecycle UI 和状态机接完整，后面再替换成真实 SSH keepalive。
+
+## 🧩 当前 Rust runtime 的分层方向
+
+`src-tauri/src/modules/ssh.rs` 现在不再把所有行为硬编码在一个大函数里，而是开始按 transport 分层：
+
+- `SessionTransport::MockBridge`
+
+这个结构的目的很明确：
+
+- 先保证前后端契约稳定
+- 再把 mock bridge 平滑替换成真实 `russh` transport
+- 避免后面接真实 SSH 时把整个会话层重新打碎
 
 所以下一个 agent 的最高优先级，不是改前端视觉，而是：
 

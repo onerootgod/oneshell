@@ -19,7 +19,7 @@ use uuid::Uuid;
 
 pub const SSH_OUTPUT_EVENT: &str = "ssh-output";
 pub const SSH_LIFECYCLE_EVENT: &str = "ssh-lifecycle";
-const MOCK_TRANSPORT_MODE: &str = "mock-russh-bridge";
+const TRANSPORT_MODE_MOCK_RUSSH_BRIDGE: &str = "mock-russh-bridge";
 const KEEP_ALIVE_SECONDS: u64 = 20;
 
 #[derive(Clone)]
@@ -34,7 +34,58 @@ struct SessionRecord {
     term_type: String,
     pixel_width: u32,
     pixel_height: u32,
+    transport: SessionTransport,
     keepalive_task: Option<JoinHandle<()>>,
+}
+
+#[derive(Debug, Clone)]
+enum SessionTransport {
+    MockBridge,
+}
+
+impl SessionTransport {
+    fn mode(&self) -> &'static str {
+        match self {
+            SessionTransport::MockBridge => TRANSPORT_MODE_MOCK_RUSSH_BRIDGE,
+        }
+    }
+
+    fn bootstrap_message(
+        &self,
+        proxy_message: &str,
+        term_type: &str,
+        cols: u32,
+        rows: u32,
+    ) -> String {
+        match self {
+            SessionTransport::MockBridge => format!(
+                "[oneshell:ssh-bootstrap] {}\r\n[oneshell:ssh-bootstrap] term={} size={}x{}\r\n[oneshell:ssh-bootstrap] 当前为 mock transport，下一步将替换成 russh 真正传输层。\r\n",
+                proxy_message, term_type, cols, rows
+            ),
+        }
+    }
+
+    fn stdin_echo(
+        &self,
+        escaped_input: &str,
+        summary: &SshSessionSummary,
+        term_type: &str,
+    ) -> String {
+        match self {
+            SessionTransport::MockBridge => format!(
+                "[oneshell:ssh-stdin] {}\r\n[oneshell:ssh-target] {}@{}:{} ({})\r\n",
+                escaped_input, summary.username, summary.host, summary.port, term_type
+            ),
+        }
+    }
+
+    fn keepalive_message(&self) -> String {
+        match self {
+            SessionTransport::MockBridge => format!(
+                "mock keepalive tick ({KEEP_ALIVE_SECONDS}s) 已发出，等待切换到真实 russh transport"
+            ),
+        }
+    }
 }
 
 impl SshSessionManager {
@@ -61,11 +112,12 @@ impl SshSessionManager {
             proxy_auth_enabled: sanitized.proxy_auth_enabled,
             connected_at: current_timestamp(),
             keep_alive_seconds: KEEP_ALIVE_SECONDS,
-            transport_mode: MOCK_TRANSPORT_MODE.into(),
+            transport_mode: SessionTransport::MockBridge.mode().into(),
             cols: sanitized.cols,
             rows: sanitized.rows,
         };
 
+        let transport = SessionTransport::MockBridge;
         let keepalive_task = self.spawn_keepalive_loop(session_id.clone());
 
         let record = SessionRecord {
@@ -73,6 +125,7 @@ impl SshSessionManager {
             term_type: sanitized.term_type.clone(),
             pixel_width: sanitized.pixel_width,
             pixel_height: sanitized.pixel_height,
+            transport: transport.clone(),
             keepalive_task: Some(keepalive_task),
         };
 
@@ -100,9 +153,11 @@ impl SshSessionManager {
         self.emit_output(
             &session_id,
             "stdout",
-            &format!(
-                "[oneshell:ssh-bootstrap] {}\r\n[oneshell:ssh-bootstrap] term={} size={}x{}\r\n[oneshell:ssh-bootstrap] 下一步将把这里替换成 russh 真正传输层。\r\n",
-                proxy_message, sanitized.term_type, sanitized.cols, sanitized.rows
+            &transport.bootstrap_message(
+                &proxy_message,
+                &sanitized.term_type,
+                sanitized.cols,
+                sanitized.rows,
             ),
         )?;
 
@@ -123,10 +178,9 @@ impl SshSessionManager {
         self.emit_output(
             session_id,
             "stdout",
-            &format!(
-                "[oneshell:ssh-stdin] {}\r\n[oneshell:ssh-target] {}@{}:{} ({})\r\n",
-                escaped, record.summary.username, record.summary.host, record.summary.port, record.term_type
-            ),
+            &record
+                .transport
+                .stdin_echo(&escaped, &record.summary, &record.term_type),
         )?;
 
         Ok(())
@@ -191,7 +245,7 @@ impl SshSessionManager {
 
     pub async fn runtime_capabilities(&self) -> Result<SshRuntimeCapabilities> {
         Ok(SshRuntimeCapabilities {
-            transport_mode: MOCK_TRANSPORT_MODE.into(),
+            transport_mode: TRANSPORT_MODE_MOCK_RUSSH_BRIDGE.into(),
             supports_password_auth: true,
             supports_socks5_proxy: true,
             supports_proxy_auth: true,
@@ -239,9 +293,7 @@ impl SshSessionManager {
                     SshLifecycleEvent {
                         session_id: session_id.clone(),
                         state: "keepalive".into(),
-                        message: Some(format!(
-                            "mock keepalive tick ({KEEP_ALIVE_SECONDS}s) 已发出，等待切换到真实 russh transport"
-                        )),
+                        message: Some(SessionTransport::MockBridge.keepalive_message()),
                     },
                 );
             }
