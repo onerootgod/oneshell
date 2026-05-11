@@ -103,11 +103,12 @@ OneShell 的 macOS 交付，默认必须同时支持：
 - SSH host key 三态策略
 - `~/NexusScripts` 脚本工作站第一版
 - SFTP 文件工作台第一版与文件树 DTO
+- SFTP 可操作版工作台与基础文件操作 command
 
 当前最大工程阻塞：
 
 - 密钥认证和真实远端 SFTP transport 还没接到 SSH 主链上
-- 脚本工作站还缺参数模板与更强的远端分发能力
+- 脚本工作站还缺更强的远端分发能力
 - Linux 远端缺少 `glib-2.0`，不能拿它做完整 Tauri 编译验证
 
 ## 📌 决策口径

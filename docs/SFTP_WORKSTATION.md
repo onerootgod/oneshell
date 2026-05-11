@@ -15,9 +15,14 @@
 
 - `get_sftp_root`
 - `list_sftp_directory`
+- `create_sftp_directory`
+- `delete_sftp_entry`
+- `upload_sftp_file`
+- `download_sftp_file`
 - React 文件工作台第一版
 - 中文 / Emoji 文件名展示链路
 - 文件大小、权限、修改时间等基础元数据
+- 建目录、删除、上传拷贝、下载导出
 
 ## ⚠️ 当前实现边界
 
@@ -65,6 +70,25 @@ type SftpDirectorySnapshot = {
 };
 ```
 
+### `create_sftp_directory`
+
+### `delete_sftp_entry`
+
+### `upload_sftp_file`
+
+### `download_sftp_file`
+
+这些 command 当前都返回统一结构：
+
+```ts
+type SftpOperationResult = {
+  action: string;
+  sourcePath?: string;
+  targetPath: string;
+  bytesTransferred: number;
+};
+```
+
 ## 🧩 当前接入文件
 
 - `src-tauri/src/modules/sftp.rs`
@@ -75,7 +99,7 @@ type SftpDirectorySnapshot = {
 
 ## ⏭️ 下一步最高优先级
 
-1. 把 `SftpDirectorySnapshot` 挂到真实 SSH transport
-2. 接上传 / 下载 / 删除
-3. 把脚本工作站和 SFTP 目录联动
-4. 为大文件传输补异步队列和进度状态
+1. 把当前文件操作从本地工作区根目录切到真实 SSH transport
+2. 把脚本工作站和 SFTP 目录联动
+3. 为大文件传输补异步队列和进度状态
+4. 补冲突策略、覆盖确认和进度展示

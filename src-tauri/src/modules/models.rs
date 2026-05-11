@@ -182,3 +182,40 @@ pub struct SftpDirectorySnapshot {
     pub entries: Vec<SftpEntryNode>,
     pub total_entries: usize,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateSftpDirectoryInput {
+    pub parent_path: String,
+    pub name: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteSftpEntryInput {
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UploadSftpFileInput {
+    pub source_path: String,
+    pub target_directory: String,
+    pub target_name: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DownloadSftpFileInput {
+    pub source_path: String,
+    pub destination_path: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpOperationResult {
+    pub action: String,
+    pub source_path: Option<String>,
+    pub target_path: String,
+    pub bytes_transferred: u64,
+}

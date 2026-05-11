@@ -17,3 +17,30 @@ export type SftpDirectorySnapshot = {
   entries: SftpEntryNode[];
   totalEntries: number;
 };
+
+export type CreateSftpDirectoryInput = {
+  parentPath: string;
+  name: string;
+};
+
+export type DeleteSftpEntryInput = {
+  path: string;
+};
+
+export type UploadSftpFileInput = {
+  sourcePath: string;
+  targetDirectory: string;
+  targetName?: string;
+};
+
+export type DownloadSftpFileInput = {
+  sourcePath: string;
+  destinationPath: string;
+};
+
+export type SftpOperationResult = {
+  action: string;
+  sourcePath?: string;
+  targetPath: string;
+  bytesTransferred: number;
+};

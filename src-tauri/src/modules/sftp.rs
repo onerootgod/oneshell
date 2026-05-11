@@ -1,4 +1,8 @@
-use crate::modules::models::{ListSftpDirectoryInput, SftpDirectorySnapshot, SftpEntryNode};
+use crate::modules::models::{
+    CreateSftpDirectoryInput, DeleteSftpEntryInput, DownloadSftpFileInput,
+    ListSftpDirectoryInput, SftpDirectorySnapshot, SftpEntryNode, SftpOperationResult,
+    UploadSftpFileInput,
+};
 use anyhow::{bail, Context, Result};
 use std::{
     fs,
@@ -69,6 +73,127 @@ impl SftpWorkspace {
         })
     }
 
+    pub fn create_directory(
+        &self,
+        input: CreateSftpDirectoryInput,
+    ) -> Result<SftpOperationResult> {
+        let parent = self.resolve_directory(Some(input.parent_path.as_str()))?;
+        let name = sanitize_entry_name(&input.name)?;
+        let target = parent.join(&name);
+        fs::create_dir_all(&target)
+            .with_context(|| format!("failed to create directory: {}", target.display()))?;
+        Ok(SftpOperationResult {
+            action: "mkdir".into(),
+            source_path: None,
+            target_path: target.to_string_lossy().into_owned(),
+            bytes_transferred: 0,
+        })
+    }
+
+    pub fn delete_entry(
+        &self,
+        input: DeleteSftpEntryInput,
+    ) -> Result<SftpOperationResult> {
+        let target = self.resolve_entry(input.path.as_str())?;
+        if target.is_dir() {
+            fs::remove_dir_all(&target)
+                .with_context(|| format!("failed to delete directory: {}", target.display()))?;
+        } else {
+            fs::remove_file(&target)
+                .with_context(|| format!("failed to delete file: {}", target.display()))?;
+        }
+        Ok(SftpOperationResult {
+            action: "delete".into(),
+            source_path: Some(target.to_string_lossy().into_owned()),
+            target_path: target.to_string_lossy().into_owned(),
+            bytes_transferred: 0,
+        })
+    }
+
+    pub fn upload_file(
+        &self,
+        input: UploadSftpFileInput,
+    ) -> Result<SftpOperationResult> {
+        let source = PathBuf::from(&input.source_path)
+            .canonicalize()
+            .with_context(|| format!("upload source not found: {}", input.source_path))?;
+        if !source.is_file() {
+            bail!("upload source is not a file");
+        }
+
+        let target_directory =
+            self.resolve_directory(Some(input.target_directory.as_str()))?;
+        let target_name = input
+            .target_name
+            .as_deref()
+            .filter(|value| !value.trim().is_empty())
+            .map(sanitize_entry_name)
+            .transpose()?
+            .unwrap_or_else(|| {
+                source
+                    .file_name()
+                    .map(|value| value.to_string_lossy().into_owned())
+                    .unwrap_or_else(|| "uploaded-file".into())
+            });
+        let target = target_directory.join(target_name);
+        let bytes = fs::copy(&source, &target).with_context(|| {
+            format!(
+                "failed to copy upload source {} -> {}",
+                source.display(),
+                target.display()
+            )
+        })?;
+        Ok(SftpOperationResult {
+            action: "upload".into(),
+            source_path: Some(source.to_string_lossy().into_owned()),
+            target_path: target.to_string_lossy().into_owned(),
+            bytes_transferred: bytes,
+        })
+    }
+
+    pub fn download_file(
+        &self,
+        input: DownloadSftpFileInput,
+    ) -> Result<SftpOperationResult> {
+        let source = self.resolve_entry(input.source_path.as_str())?;
+        if !source.is_file() {
+            bail!("download source is not a file");
+        }
+
+        let destination = PathBuf::from(&input.destination_path);
+        let target = if destination.is_dir()
+            || input.destination_path.ends_with(std::path::MAIN_SEPARATOR)
+        {
+            destination.join(
+                source
+                    .file_name()
+                    .map(|value| value.to_os_string())
+                    .unwrap_or_default(),
+            )
+        } else {
+            destination
+        };
+        if let Some(parent) = target.parent() {
+            fs::create_dir_all(parent).with_context(|| {
+                format!("failed to create download destination: {}", parent.display())
+            })?;
+        }
+
+        let bytes = fs::copy(&source, &target).with_context(|| {
+            format!(
+                "failed to copy download source {} -> {}",
+                source.display(),
+                target.display()
+            )
+        })?;
+        Ok(SftpOperationResult {
+            action: "download".into(),
+            source_path: Some(source.to_string_lossy().into_owned()),
+            target_path: target.to_string_lossy().into_owned(),
+            bytes_transferred: bytes,
+        })
+    }
+
     fn resolve_directory(&self, requested: Option<&str>) -> Result<PathBuf> {
         let candidate = requested
             .map(PathBuf::from)
@@ -100,6 +225,29 @@ impl SftpWorkspace {
 
         Ok(normalized)
     }
+
+    fn resolve_entry(&self, requested: &str) -> Result<PathBuf> {
+        let candidate = PathBuf::from(requested);
+        let resolved = if candidate.is_absolute() {
+            candidate
+        } else {
+            self.root_dir.join(candidate)
+        };
+
+        let normalized = resolved
+            .canonicalize()
+            .with_context(|| format!("entry not found: {}", resolved.display()))?;
+        let canonical_root = self.root_dir.canonicalize().with_context(|| {
+            format!(
+                "failed to canonicalize sftp workspace root: {}",
+                self.root_dir.display()
+            )
+        })?;
+        if !normalized.starts_with(&canonical_root) {
+            bail!("entry escapes sftp workspace root");
+        }
+        Ok(normalized)
+    }
 }
 
 fn permissions_string(metadata: &fs::Metadata) -> String {
@@ -117,4 +265,18 @@ fn permissions_string(metadata: &fs::Metadata) -> String {
             "rw".into()
         }
     }
+}
+
+fn sanitize_entry_name(value: &str) -> Result<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        bail!("entry name cannot be empty");
+    }
+    if trimmed == "." || trimmed == ".." {
+        bail!("entry name cannot be dot path");
+    }
+    if trimmed.contains('/') || trimmed.contains('\\') {
+        bail!("entry name cannot contain path separators");
+    }
+    Ok(trimmed.to_owned())
 }
