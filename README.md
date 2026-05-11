@@ -87,6 +87,7 @@ oneshell/
 - 📘 [AGENTS.md](./AGENTS.md)：给其他 agent 的统一作战说明
 - 🏗️ [docs/ARCHITECTURE.md](./docs/ARCHITECTURE.md)：系统架构、边界和模块分层
 - 🗺️ [docs/ROADMAP.md](./docs/ROADMAP.md)：阶段路线图、优先级与交付口径
+- 🔌 [docs/SSH_RUNTIME.md](./docs/SSH_RUNTIME.md)：SSH 前后端事件桥与 command 契约
 
 ## ⚠️ 硬性原则
 

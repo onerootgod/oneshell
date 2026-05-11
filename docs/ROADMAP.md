@@ -43,6 +43,10 @@
 - ❤️ keep-alive
 - 📐 PTY resize
 
+配套文档：
+
+- 🔌 `docs/SSH_RUNTIME.md`
+
 阶段完成标准：
 
 - 前端能发起 SSH 连接

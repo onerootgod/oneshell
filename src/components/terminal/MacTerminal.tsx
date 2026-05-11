@@ -1,9 +1,11 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { Terminal } from "xterm";
 import { FitAddon } from "xterm-addon-fit";
 import { Unicode11Addon } from "xterm-addon-unicode11";
 import { WebglAddon } from "xterm-addon-webgl";
 import "xterm/css/xterm.css";
+import { useSshTerminalSession } from "../../hooks/useSshTerminalSession";
+import type { SshConnectInput, SshLifecycleEvent, SshOutputEvent } from "../../types/ssh";
 
 const BOOT_LINES = [
   "\u001b[1;36mOneShell\u001b[0m terminal bootstrap",
@@ -22,7 +24,45 @@ export default function MacTerminal() {
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const resizeObserverRef = useRef<ResizeObserver | null>(null);
+  const sendRef = useRef<(data: string) => Promise<void>>(async () => undefined);
+  const resizeRef = useRef<
+    (cols: number, rows: number, pixelWidth?: number, pixelHeight?: number) => Promise<void>
+  >(async () => undefined);
   const [rendererMode, setRendererMode] = useState<RendererMode>("canvas");
+  const [alias, setAlias] = useState("🚀 OCI 生产机");
+  const [host, setHost] = useState("127.0.0.1");
+  const [port, setPort] = useState("22");
+  const [username, setUsername] = useState("root");
+  const [password, setPassword] = useState("");
+  const [proxyEnabled, setProxyEnabled] = useState(false);
+  const [proxyHost, setProxyHost] = useState("127.0.0.1");
+  const [proxyPort, setProxyPort] = useState("7891");
+
+  const {
+    session,
+    knownSessions,
+    status,
+    lastError,
+    connect,
+    disconnect,
+    resize,
+    send
+  } = useSshTerminalSession({
+    onOutput: handleOutputEvent,
+    onLifecycle: handleLifecycleEvent
+  });
+
+  const connectionSummary = useMemo(() => {
+    if (session) {
+      return `${session.username}@${session.host}:${session.port}`;
+    }
+    return `${username || "user"}@${host || "host"}:${port || "22"}`;
+  }, [host, port, session, username]);
+
+  useEffect(() => {
+    sendRef.current = send;
+    resizeRef.current = resize;
+  }, [resize, send]);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -92,6 +132,14 @@ export default function MacTerminal() {
       terminal.writeln(line);
     }
 
+    terminal.onData((data) => {
+      void sendRef.current(data);
+    });
+
+    terminal.onResize(({ cols, rows }) => {
+      void resizeRef.current(cols, rows);
+    });
+
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
 
@@ -118,6 +166,53 @@ export default function MacTerminal() {
     };
   }, []);
 
+  function handleOutputEvent(event: SshOutputEvent) {
+    if (session && event.sessionId !== session.id) {
+      return;
+    }
+
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    if (event.stream === "stderr") {
+      terminal.write(`\u001b[31m${event.text}\u001b[0m`);
+      return;
+    }
+
+    terminal.write(event.text);
+  }
+
+  function handleLifecycleEvent(event: SshLifecycleEvent) {
+    if (session && event.sessionId !== session.id) {
+      return;
+    }
+
+    const terminal = terminalRef.current;
+    if (!terminal) return;
+
+    if (event.message) {
+      terminal.writeln(`\r\n\u001b[38;5;81m[SSH]\u001b[0m ${event.message}`);
+    }
+  }
+
+  async function handleConnect() {
+    const payload: SshConnectInput = {
+      host,
+      port: Number(port) || 22,
+      username,
+      password,
+      termType: "xterm-256color",
+      proxy: proxyEnabled
+        ? {
+            host: proxyHost,
+            port: Number(proxyPort) || 1080
+          }
+        : undefined
+    };
+
+    await connect(payload);
+  }
+
   return (
     <section className="overflow-hidden rounded-[26px] border border-white/10 bg-slate-950/35 shadow-shell backdrop-blur-[28px]">
       <header className="flex items-center justify-between border-b border-white/10 px-5 py-3">
@@ -140,8 +235,120 @@ export default function MacTerminal() {
         </div>
       </header>
 
-      <div className="grid gap-0 lg:grid-cols-[minmax(0,1fr)_280px]">
+      <div className="grid gap-0 xl:grid-cols-[320px_minmax(0,1fr)_300px]">
+        <aside className="border-r border-white/10 bg-black/10 p-5">
+          <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
+            连接工作台
+          </p>
+          <div className="mt-4 space-y-3">
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-400">别名 / Emoji</span>
+              <input
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                value={alias}
+                onChange={(event) => setAlias(event.target.value)}
+              />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-400">Host</span>
+              <input
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                value={host}
+                onChange={(event) => setHost(event.target.value)}
+              />
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">Port</span>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                  value={port}
+                  onChange={(event) => setPort(event.target.value)}
+                />
+              </label>
+              <label className="block">
+                <span className="mb-1 block text-xs text-slate-400">User</span>
+                <input
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                  value={username}
+                  onChange={(event) => setUsername(event.target.value)}
+                />
+              </label>
+            </div>
+            <label className="block">
+              <span className="mb-1 block text-xs text-slate-400">Password</span>
+              <input
+                type="password"
+                className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+              />
+            </label>
+
+            <label className="flex items-center justify-between rounded-xl border border-white/10 bg-slate-950/40 px-3 py-2 text-sm text-slate-200">
+              <span>🌍 启用 SOCKS5 代理</span>
+              <input
+                type="checkbox"
+                checked={proxyEnabled}
+                onChange={(event) => setProxyEnabled(event.target.checked)}
+              />
+            </label>
+
+            {proxyEnabled ? (
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-400">Proxy Host</span>
+                  <input
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                    value={proxyHost}
+                    onChange={(event) => setProxyHost(event.target.value)}
+                  />
+                </label>
+                <label className="block">
+                  <span className="mb-1 block text-xs text-slate-400">Proxy Port</span>
+                  <input
+                    className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-slate-100 outline-none"
+                    value={proxyPort}
+                    onChange={(event) => setProxyPort(event.target.value)}
+                  />
+                </label>
+              </div>
+            ) : null}
+
+            <div className="flex gap-3">
+              <button
+                className="rounded-xl bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950"
+                onClick={() => void handleConnect()}
+              >
+                连接
+              </button>
+              <button
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-200"
+                onClick={() => void disconnect()}
+              >
+                断开
+              </button>
+            </div>
+          </div>
+        </aside>
+
         <div className="min-h-[440px] bg-[linear-gradient(180deg,rgba(4,10,18,0.55),rgba(4,10,18,0.3))] p-4">
+          <div className="mb-3 flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/30 px-4 py-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                当前目标
+              </p>
+              <p className="mt-1 text-sm font-medium text-slate-100">
+                {alias} · {connectionSummary}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs uppercase tracking-[0.2em] text-slate-500">
+                SSH 状态
+              </p>
+              <p className="mt-1 text-sm text-cyan-200">{status}</p>
+            </div>
+          </div>
           <div
             ref={hostRef}
             className="h-[420px] rounded-[22px] border border-white/8 bg-[radial-gradient(circle_at_top,rgba(116,214,255,0.08),transparent_35%),rgba(2,6,12,0.18)] px-3 py-3"
@@ -150,29 +357,37 @@ export default function MacTerminal() {
 
         <aside className="border-l border-white/10 bg-black/10 p-5">
           <p className="text-xs uppercase tracking-[0.24em] text-slate-500">
-            Render Notes
+            运行时说明
           </p>
           <div className="mt-4 space-y-4 text-sm leading-6 text-slate-300">
             <p>
-              Emoji width is handled by{" "}
+              😀 Emoji 宽度由{" "}
               <span className="font-medium text-cyan-200">Unicode11Addon</span>{" "}
-              with <span className="font-medium text-cyan-200">activeVersion = 11</span>.
+              负责，并固定为{" "}
+              <span className="font-medium text-cyan-200">activeVersion = 11</span>。
             </p>
             <p>
-              WebGL is attempted first for smoother glyph rendering, then falls
-              back to the default canvas path if the GPU context is lost.
+              🎮 默认优先尝试 WebGL 渲染，GPU context 丢失时回退到 canvas。
             </p>
             <p>
-              Font fallback order follows the macOS strategy:
+              🍎 当前字体回退顺序：
               <br />
               <span className="font-medium text-slate-100">
                 JetBrainsMono Nerd Font → Apple Color Emoji → Menlo → monospace
               </span>
             </p>
             <p>
-              This surface is ready for the next step: wiring SSH stdin/stdout
-              from the Tauri backend.
+              🔌 当前终端已经接上了 Tauri SSH 事件桥约定，下一步只差 Rust runtime 真正发出
+              `ssh-output` / `ssh-lifecycle` 事件。
             </p>
+            <p>
+              📡 已知会话：<span className="font-medium text-slate-100">{knownSessions.length}</span>
+            </p>
+            {lastError ? (
+              <p className="rounded-2xl border border-red-400/20 bg-red-400/10 px-3 py-3 text-red-200">
+                {lastError}
+              </p>
+            ) : null}
           </div>
         </aside>
       </div>
