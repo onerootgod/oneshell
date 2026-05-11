@@ -11,16 +11,19 @@ use std::{
 };
 use tauri::{AppHandle, Emitter};
 use tokio::{
+    net::TcpStream,
     sync::RwLock,
     task::JoinHandle,
-    time::{sleep, Duration},
+    time::{sleep, timeout, Duration},
 };
+use tokio_socks::tcp::Socks5Stream;
 use uuid::Uuid;
 
 pub const SSH_OUTPUT_EVENT: &str = "ssh-output";
 pub const SSH_LIFECYCLE_EVENT: &str = "ssh-lifecycle";
-const TRANSPORT_MODE_MOCK_RUSSH_BRIDGE: &str = "mock-russh-bridge";
+const TRANSPORT_MODE_MOCK_RUSSH_BRIDGE: &str = "mock-russh-bridge+preflight";
 const KEEP_ALIVE_SECONDS: u64 = 20;
+const CONNECT_TIMEOUT_SECONDS: u64 = 8;
 
 #[derive(Clone)]
 pub struct SshSessionManager {
@@ -98,6 +101,19 @@ impl SshSessionManager {
 
     pub async fn connect(&self, input: SshConnectInput) -> Result<SshSessionSummary> {
         let sanitized = sanitize_connect_input(input)?;
+        self.emit_lifecycle(SshLifecycleEvent {
+            session_id: "pending".into(),
+            state: "preflight".into(),
+            message: Some(match &sanitized.proxy {
+                Some(proxy) => format!(
+                    "正在通过 SOCKS5 预检 {}:{} -> {}:{}",
+                    proxy.host, proxy.port, sanitized.host, sanitized.port
+                ),
+                None => format!("正在预检直连 {}:{}", sanitized.host, sanitized.port),
+            }),
+        })?;
+        self.run_preflight(&sanitized).await?;
+
         let session_id = Uuid::new_v4().to_string();
 
         let summary = SshSessionSummary {
@@ -138,7 +154,7 @@ impl SshSessionManager {
             session_id: session_id.clone(),
             state: "connected".into(),
             message: Some(format!(
-                "SSH 会话已注册：{}@{}:{}",
+                "SSH 会话已注册：{}@{}:{}；网络预检已通过",
                 summary.username, summary.host, summary.port
             )),
         })?;
@@ -275,6 +291,66 @@ impl SshSessionManager {
             .context("failed to emit ssh lifecycle event")
     }
 
+    async fn run_preflight(&self, input: &SanitizedConnectInput) -> Result<()> {
+        let preflight = match &input.proxy {
+            Some(proxy) => self.run_proxy_preflight(proxy, input).await,
+            None => self.run_direct_preflight(input).await,
+        };
+
+        preflight.map_err(|error| anyhow!("SSH 网络预检失败: {error}"))
+    }
+
+    async fn run_direct_preflight(&self, input: &SanitizedConnectInput) -> Result<()> {
+        timeout(
+            Duration::from_secs(CONNECT_TIMEOUT_SECONDS),
+            TcpStream::connect((input.host.as_str(), input.port)),
+        )
+        .await
+        .context("直连超时")?
+        .with_context(|| format!("无法连接到 {}:{}", input.host, input.port))?;
+
+        Ok(())
+    }
+
+    async fn run_proxy_preflight(
+        &self,
+        proxy: &SanitizedProxyConfig,
+        input: &SanitizedConnectInput,
+    ) -> Result<()> {
+        let proxy_connect = async {
+            match (&proxy.username, &proxy.password) {
+                (Some(username), Some(password)) => {
+                    Socks5Stream::connect_with_password(
+                        (proxy.host.as_str(), proxy.port),
+                        (input.host.as_str(), input.port),
+                        username,
+                        password,
+                    )
+                    .await
+                    .map(|_| ())
+                }
+                _ => Socks5Stream::connect(
+                    (proxy.host.as_str(), proxy.port),
+                    (input.host.as_str(), input.port),
+                )
+                .await
+                .map(|_| ()),
+            }
+        };
+
+        timeout(Duration::from_secs(CONNECT_TIMEOUT_SECONDS), proxy_connect)
+            .await
+            .context("SOCKS5 代理预检超时")?
+            .with_context(|| {
+                format!(
+                    "无法通过 SOCKS5 {}:{} 连到 {}:{}",
+                    proxy.host, proxy.port, input.host, input.port
+                )
+            })?;
+
+        Ok(())
+    }
+
     fn spawn_keepalive_loop(&self, session_id: String) -> JoinHandle<()> {
         let app = self.app.clone();
         let sessions = self.sessions.clone();
@@ -305,6 +381,8 @@ impl SshSessionManager {
 struct SanitizedProxyConfig {
     host: String,
     port: u16,
+    username: Option<String>,
+    password: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -347,6 +425,11 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
         .map(|proxy| SanitizedProxyConfig {
             host: proxy.host.trim().to_owned(),
             port: proxy.port,
+            username: proxy
+                .username
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            password: proxy.password.filter(|value| !value.is_empty()),
         })
         .filter(|proxy| !proxy.host.is_empty());
     let proxy_auth_enabled = input

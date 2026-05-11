@@ -183,6 +183,7 @@ type SshRuntimeCapabilities = {
 - `connect / send_input / resize / disconnect / list_sessions` command handler
 - mock keepalive lifecycle tick
 - transport 已开始按独立枚举分层，便于把 mock bridge 替换成真实 `russh` transport
+- connect 阶段已增加真实网络预检：直连 / SOCKS5 都会先做 socket 级连通性验证
 
 ## ⛔ 当前最大缺口
 
@@ -193,6 +194,25 @@ type SshRuntimeCapabilities = {
 - `state = "keepalive"`
 
 这能帮助前端先把 lifecycle UI 和状态机接完整，后面再替换成真实 SSH keepalive。
+
+## 🌍 当前 connect 已经不是纯假动作
+
+虽然底层还没有切到完整 `russh` 传输层，但 `connect` 现在已经会先做一轮真实网络预检：
+
+- 直连模式：`TcpStream::connect`
+- SOCKS5 模式：`tokio-socks::Socks5Stream`
+
+这意味着：
+
+- host / port 填错会直接失败
+- 代理地址填错会直接失败
+- 代理认证参数会参与预检
+
+当前仍然缺的部分是：
+
+- 真正 SSH 握手
+- 真正 PTY / shell 建立
+- 真正 stdout / stderr 流
 
 ## 🧩 当前 Rust runtime 的分层方向
 
