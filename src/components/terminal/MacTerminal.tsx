@@ -6,6 +6,11 @@ import { WebglAddon } from "xterm-addon-webgl";
 import "xterm/css/xterm.css";
 import { useSshTerminalSession } from "../../hooks/useSshTerminalSession";
 import type { SshConnectInput, SshLifecycleEvent, SshOutputEvent } from "../../types/ssh";
+import {
+  listServerProfiles,
+  saveServerProfile
+} from "../../lib/tauri/serverProfiles";
+import type { ServerProfileSummary } from "../../types/serverProfiles";
 
 const BOOT_LINES = [
   "\u001b[1;36mOneShell\u001b[0m terminal bootstrap",
@@ -37,6 +42,8 @@ export default function MacTerminal() {
   const [proxyEnabled, setProxyEnabled] = useState(false);
   const [proxyHost, setProxyHost] = useState("127.0.0.1");
   const [proxyPort, setProxyPort] = useState("7891");
+  const [savedProfiles, setSavedProfiles] = useState<ServerProfileSummary[]>([]);
+  const [profilesStatus, setProfilesStatus] = useState("📁 正在读取连接收藏");
 
   const {
     session,
@@ -64,6 +71,10 @@ export default function MacTerminal() {
     sendRef.current = send;
     resizeRef.current = resize;
   }, [resize, send]);
+
+  useEffect(() => {
+    void refreshProfiles();
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -214,6 +225,49 @@ export default function MacTerminal() {
     await connect(payload);
   }
 
+  async function refreshProfiles() {
+    try {
+      const profiles = await listServerProfiles();
+      setSavedProfiles(profiles);
+      setProfilesStatus(
+        profiles.length > 0
+          ? `📚 已加载 ${profiles.length} 条连接收藏`
+          : "📭 暂无连接收藏"
+      );
+    } catch {
+      setProfilesStatus("🧪 连接收藏接口尚未连通");
+    }
+  }
+
+  async function handleSaveProfile() {
+    if (!host.trim() || !username.trim() || !password) {
+      setProfilesStatus("⚠️ 保存前至少要填 Host / User / Password");
+      return;
+    }
+
+    const saved = await saveServerProfile({
+      name: alias.trim() || undefined,
+      host: host.trim(),
+      port: Number(port) || 22,
+      username: username.trim(),
+      password
+    });
+
+    setSavedProfiles((current) => {
+      const filtered = current.filter((item) => item.id !== saved.id);
+      return [saved, ...filtered];
+    });
+    setProfilesStatus(`💾 已保存连接：${saved.name ?? `${saved.username}@${saved.host}`}`);
+  }
+
+  function applyProfile(profile: ServerProfileSummary) {
+    setAlias(profile.name ?? `🧩 ${profile.host}`);
+    setHost(profile.host);
+    setPort(String(profile.port));
+    setUsername(profile.username);
+    setProfilesStatus(`🪄 已套用连接：${profile.name ?? profile.host}，密码需重新输入`);
+  }
+
   return (
     <section className="overflow-hidden rounded-[26px] border border-white/10 bg-slate-950/35 shadow-shell backdrop-blur-[28px]">
       <header className="flex items-center justify-between border-b border-white/10 px-5 py-3">
@@ -324,11 +378,66 @@ export default function MacTerminal() {
                 连接
               </button>
               <button
+                className="rounded-xl border border-cyan-400/30 bg-cyan-400/10 px-4 py-2 text-sm text-cyan-200"
+                onClick={() => void handleSaveProfile()}
+              >
+                保存
+              </button>
+              <button
                 className="rounded-xl border border-white/10 px-4 py-2 text-sm text-slate-200"
                 onClick={() => void disconnect()}
               >
                 断开
               </button>
+            </div>
+
+            <div className="rounded-2xl border border-white/10 bg-slate-950/35 p-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-xs uppercase tracking-[0.22em] text-slate-500">
+                    连接收藏
+                  </p>
+                  <p className="mt-1 text-xs text-slate-400">{profilesStatus}</p>
+                </div>
+                <button
+                  className="rounded-lg border border-white/10 px-3 py-1 text-xs text-slate-300"
+                  onClick={() => void refreshProfiles()}
+                >
+                  刷新
+                </button>
+              </div>
+
+              <div className="mt-3 space-y-3">
+                {savedProfiles.length === 0 ? (
+                  <div className="rounded-xl border border-dashed border-white/10 px-3 py-4 text-xs leading-6 text-slate-500">
+                    暂无连接收藏。保存后，这里会沉淀成可复用的连接列表。
+                  </div>
+                ) : (
+                  savedProfiles.map((profile) => (
+                    <article
+                      key={profile.id}
+                      className="rounded-xl border border-white/10 bg-black/10 px-3 py-3"
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="text-sm font-medium text-slate-100">
+                            {profile.name ?? `🧩 ${profile.host}`}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-400">
+                            {profile.username}@{profile.host}:{profile.port}
+                          </p>
+                        </div>
+                        <button
+                          className="rounded-lg border border-cyan-400/30 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200"
+                          onClick={() => applyProfile(profile)}
+                        >
+                          套用
+                        </button>
+                      </div>
+                    </article>
+                  ))
+                )}
+              </div>
             </div>
           </div>
         </aside>

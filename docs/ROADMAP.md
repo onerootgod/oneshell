@@ -12,6 +12,7 @@
 - ✅ SQLCipher 数据库初始化
 - ✅ AES-GCM 密码字段加密
 - ✅ macOS `Intel + Apple Silicon` 通用构建脚本与 CI 骨架
+- ✅ 连接收藏的前端读取 / 保存 / 套用链路
 
 交付口径：
 
