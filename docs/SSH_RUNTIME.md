@@ -153,6 +153,8 @@ type SshResizeInput = {
 - `src/lib/tauri/ssh.ts`
 - `src/hooks/useSshTerminalSession.ts`
 - `src/components/terminal/MacTerminal.tsx`
+- `src-tauri/src/commands/ssh.rs`
+- `src-tauri/src/modules/ssh.rs`
 
 这些文件已经完成：
 
@@ -161,14 +163,16 @@ type SshResizeInput = {
 - 事件监听包装
 - 终端组件的连接面板
 - 终端组件对 `ssh-output` / `ssh-lifecycle` 的监听
+- Rust 侧会话注册表与事件发射骨架
+- `connect / send_input / resize / disconnect / list_sessions` command handler
 
 ## ⛔ 当前最大缺口
 
-现在前端契约已经定下来了，但 Rust 后端还没真正实现这套 SSH runtime。
+现在前后端契约已经定下来了，Rust 侧也已经有会话注册表和事件发射骨架，但底层还不是 `russh` 真传输层。
 
 所以下一个 agent 的最高优先级，不是改前端视觉，而是：
 
-1. 在 `src-tauri/src/modules/ssh.rs` 落 SSH runtime
-2. 在 `src-tauri/src/commands/ssh.rs` 落 command handler
-3. 在 `src-tauri/src/lib.rs` 注册 invoke handler
-4. 按本文档里的事件名把 stdout / lifecycle 发出来
+1. 把 `src-tauri/src/modules/ssh.rs` 的 mock session bridge 替换成真正的 `russh` transport
+2. 接入 `SOCKS5` 真代理拨号
+3. 接入 keep-alive
+4. 按本文档里的事件名持续推送真实 stdout / stderr / lifecycle

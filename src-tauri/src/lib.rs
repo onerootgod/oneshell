@@ -13,6 +13,11 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            commands::ssh::connect_ssh_session,
+            commands::ssh::disconnect_ssh_session,
+            commands::ssh::list_ssh_sessions,
+            commands::ssh::resize_ssh_session,
+            commands::ssh::send_ssh_input,
             commands::server_profiles::list_server_profiles,
             commands::server_profiles::save_server_profile
         ])
