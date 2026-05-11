@@ -156,3 +156,29 @@ pub struct ScriptExecutionResult {
     pub stdout: String,
     pub stderr: String,
 }
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListSftpDirectoryInput {
+    pub path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpEntryNode {
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub size_bytes: u64,
+    pub permissions: String,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpDirectorySnapshot {
+    pub root_path: String,
+    pub current_path: String,
+    pub entries: Vec<SftpEntryNode>,
+    pub total_entries: usize,
+}

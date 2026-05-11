@@ -18,6 +18,8 @@ pub fn run() {
             commands::scripts::get_script_workspace_root,
             commands::scripts::list_script_entries,
             commands::scripts::run_local_script,
+            commands::sftp::get_sftp_root,
+            commands::sftp::list_sftp_directory,
             commands::ssh::connect_ssh_session,
             commands::ssh::disconnect_ssh_session,
             commands::ssh::get_ssh_runtime_capabilities,

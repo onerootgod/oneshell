@@ -49,6 +49,7 @@
 - `docs/ROADMAP.md`
 - `docs/SSH_RUNTIME.md`
 - `docs/SCRIPT_WORKSTATION.md`
+- `docs/SFTP_WORKSTATION.md`
 
 ## 🗺️ 默认推进顺序
 
@@ -101,10 +102,11 @@ OneShell 的 macOS 交付，默认必须同时支持：
 - `russh + SOCKS5 + PTY + shell + keepalive` 基础 SSH 主链
 - SSH host key 三态策略
 - `~/NexusScripts` 脚本工作站第一版
+- SFTP 文件工作台第一版与文件树 DTO
 
 当前最大工程阻塞：
 
-- 密钥认证和 SFTP 子系统还没接到真实 SSH transport 上
+- 密钥认证和真实远端 SFTP transport 还没接到 SSH 主链上
 - 脚本工作站还缺参数模板与更强的远端分发能力
 - Linux 远端缺少 `glib-2.0`，不能拿它做完整 Tauri 编译验证
 

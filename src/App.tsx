@@ -1,4 +1,5 @@
 import MacTerminal from "./components/terminal/MacTerminal";
+import SftpWorkbench from "./components/sftp/SftpWorkbench";
 
 const architectureTracks = [
   "Tauri command bridge for SSH stdin / stdout streaming",
@@ -50,6 +51,10 @@ export default function App() {
 
         <div className="mt-10">
           <MacTerminal />
+        </div>
+
+        <div className="mt-10">
+          <SftpWorkbench />
         </div>
       </section>
     </main>

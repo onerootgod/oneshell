@@ -49,6 +49,7 @@ OneShell 要解决的核心问题：
 - ✅ `~/NexusScripts` 脚本工作站扫描
 - ✅ 脚本详情读取、本地执行、结果回传
 - ✅ 一键注入当前 SSH 会话执行脚本命令
+- ✅ SFTP 文件工作台第一版（文件树 DTO + UTF-8 / Emoji 文件名链路）
 
 ## 🎯 当前主线怎么推
 
@@ -95,6 +96,7 @@ oneshell/
 - 🔌 [docs/SSH_RUNTIME.md](./docs/SSH_RUNTIME.md)：SSH 前后端事件桥与 command 契约
 - 🍎 [docs/BUILD_MACOS_UNIVERSAL.md](./docs/BUILD_MACOS_UNIVERSAL.md)：Intel + M 芯片通用构建说明
 - 🧰 [docs/SCRIPT_WORKSTATION.md](./docs/SCRIPT_WORKSTATION.md)：脚本目录、执行模式和远端注入约定
+- 📂 [docs/SFTP_WORKSTATION.md](./docs/SFTP_WORKSTATION.md)：SFTP 文件树 DTO 与工作台约定
 
 ## ⚠️ 硬性原则
 
