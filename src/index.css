@@ -1,0 +1,31 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: dark;
+  font-family: "SF Pro Display", "PingFang SC", "Helvetica Neue", sans-serif;
+  background: #02060c;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+.xterm {
+  height: 100%;
+}
+
+.xterm-viewport {
+  border-radius: 18px;
+}
+
+.xterm-screen canvas {
+  image-rendering: auto;
+}
