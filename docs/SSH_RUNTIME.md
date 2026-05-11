@@ -181,10 +181,17 @@ type SshRuntimeCapabilities = {
 - 终端组件对 `ssh-output` / `ssh-lifecycle` 的监听
 - Rust 侧会话注册表与事件发射骨架
 - `connect / send_input / resize / disconnect / list_sessions` command handler
+- mock keepalive lifecycle tick
 
 ## ⛔ 当前最大缺口
 
 现在前后端契约已经定下来了，Rust 侧也已经有会话注册表和事件发射骨架，但底层还不是 `russh` 真传输层。
+
+当前 mock runtime 已经会周期性发出：
+
+- `state = "keepalive"`
+
+这能帮助前端先把 lifecycle UI 和状态机接完整，后面再替换成真实 SSH keepalive。
 
 所以下一个 agent 的最高优先级，不是改前端视觉，而是：
 

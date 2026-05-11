@@ -10,7 +10,11 @@ use std::{
     time::{SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter};
-use tokio::sync::RwLock;
+use tokio::{
+    sync::RwLock,
+    task::JoinHandle,
+    time::{sleep, Duration},
+};
 use uuid::Uuid;
 
 pub const SSH_OUTPUT_EVENT: &str = "ssh-output";
@@ -30,6 +34,7 @@ struct SessionRecord {
     term_type: String,
     pixel_width: u32,
     pixel_height: u32,
+    keepalive_task: Option<JoinHandle<()>>,
 }
 
 impl SshSessionManager {
@@ -61,11 +66,14 @@ impl SshSessionManager {
             rows: sanitized.rows,
         };
 
+        let keepalive_task = self.spawn_keepalive_loop(session_id.clone());
+
         let record = SessionRecord {
             summary: summary.clone(),
             term_type: sanitized.term_type.clone(),
             pixel_width: sanitized.pixel_width,
             pixel_height: sanitized.pixel_height,
+            keepalive_task: Some(keepalive_task),
         };
 
         self.sessions
@@ -156,8 +164,12 @@ impl SshSessionManager {
 
     pub async fn disconnect(&self, session_id: &str) -> Result<()> {
         let removed = self.sessions.write().await.remove(session_id);
-        if removed.is_none() {
+        let Some(mut removed) = removed else {
             bail!("SSH session not found: {session_id}");
+        };
+
+        if let Some(task) = removed.keepalive_task.take() {
+            task.abort();
         }
 
         self.emit_lifecycle(SshLifecycleEvent {
@@ -207,6 +219,33 @@ impl SshSessionManager {
         self.app
             .emit(SSH_LIFECYCLE_EVENT, event)
             .context("failed to emit ssh lifecycle event")
+    }
+
+    fn spawn_keepalive_loop(&self, session_id: String) -> JoinHandle<()> {
+        let app = self.app.clone();
+        let sessions = self.sessions.clone();
+
+        tauri::async_runtime::spawn(async move {
+            loop {
+                sleep(Duration::from_secs(KEEP_ALIVE_SECONDS)).await;
+
+                let session_exists = sessions.read().await.contains_key(&session_id);
+                if !session_exists {
+                    break;
+                }
+
+                let _ = app.emit(
+                    SSH_LIFECYCLE_EVENT,
+                    SshLifecycleEvent {
+                        session_id: session_id.clone(),
+                        state: "keepalive".into(),
+                        message: Some(format!(
+                            "mock keepalive tick ({KEEP_ALIVE_SECONDS}s) 已发出，等待切换到真实 russh transport"
+                        )),
+                    },
+                );
+            }
+        })
     }
 }
 

@@ -172,6 +172,8 @@ function lifecycleMessage(event: SshLifecycleEvent) {
       return `🔴 ${event.message ?? "SSH 运行时错误"}`;
     case "exit-status":
       return `📦 ${event.message ?? "远端进程已退出"}`;
+    case "keepalive":
+      return `❤️ ${event.message ?? "keepalive 已发送"}`;
     default:
       return `🛰️ ${event.message ?? event.state}`;
   }
