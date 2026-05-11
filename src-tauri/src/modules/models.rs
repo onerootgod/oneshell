@@ -112,3 +112,40 @@ pub struct SshLifecycleEvent {
     pub state: String,
     pub message: Option<String>,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptEntrySummary {
+    pub id: String,
+    pub name: String,
+    pub path: String,
+    pub kind: String,
+    pub relative_path: String,
+    pub size_bytes: u64,
+    pub modified_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptEntryDetail {
+    pub summary: ScriptEntrySummary,
+    pub content: String,
+    pub suggested_remote_command: String,
+    pub local_runner: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunLocalScriptInput {
+    pub path: String,
+    pub args: Option<Vec<String>>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScriptExecutionResult {
+    pub command: String,
+    pub exit_code: i32,
+    pub stdout: String,
+    pub stderr: String,
+}

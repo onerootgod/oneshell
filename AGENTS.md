@@ -47,6 +47,8 @@
 - `README.md`
 - `docs/ARCHITECTURE.md`
 - `docs/ROADMAP.md`
+- `docs/SSH_RUNTIME.md`
+- `docs/SCRIPT_WORKSTATION.md`
 
 ## 🗺️ 默认推进顺序
 
@@ -96,11 +98,14 @@ OneShell 的 macOS 交付，默认必须同时支持：
 - SQLCipher 基础加密存储
 - AES-GCM 密码字段加密
 - xterm.js + Unicode11 + WebGL fallback 基础终端组件
+- `russh + SOCKS5 + PTY + shell + keepalive` 基础 SSH 主链
+- SSH host key 三态策略
+- `~/NexusScripts` 脚本工作站第一版
 
 当前最大工程阻塞：
 
-- Rust SSH runtime 还没真正打通
-- Tauri 前后端事件桥还没完整连上
+- 密钥认证和 SFTP 子系统还没接到真实 SSH transport 上
+- 脚本工作站还缺参数模板与更强的远端分发能力
 - Linux 远端缺少 `glib-2.0`，不能拿它做完整 Tauri 编译验证
 
 ## 📌 决策口径

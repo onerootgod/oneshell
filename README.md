@@ -46,6 +46,9 @@ OneShell 要解决的核心问题：
 - ✅ macOS 字体回退顺序：
   `JetBrainsMono Nerd Font -> Apple Color Emoji -> Menlo -> monospace`
 - ✅ macOS 通用构建链路骨架（`Intel + Apple Silicon`）
+- ✅ `~/NexusScripts` 脚本工作站扫描
+- ✅ 脚本详情读取、本地执行、结果回传
+- ✅ 一键注入当前 SSH 会话执行脚本命令
 
 ## 🎯 当前主线怎么推
 
@@ -91,6 +94,7 @@ oneshell/
 - 🗺️ [docs/ROADMAP.md](./docs/ROADMAP.md)：阶段路线图、优先级与交付口径
 - 🔌 [docs/SSH_RUNTIME.md](./docs/SSH_RUNTIME.md)：SSH 前后端事件桥与 command 契约
 - 🍎 [docs/BUILD_MACOS_UNIVERSAL.md](./docs/BUILD_MACOS_UNIVERSAL.md)：Intel + M 芯片通用构建说明
+- 🧰 [docs/SCRIPT_WORKSTATION.md](./docs/SCRIPT_WORKSTATION.md)：脚本目录、执行模式和远端注入约定
 
 ## ⚠️ 硬性原则
 

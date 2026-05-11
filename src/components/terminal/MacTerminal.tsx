@@ -4,6 +4,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { Unicode11Addon } from "xterm-addon-unicode11";
 import { WebglAddon } from "xterm-addon-webgl";
 import "xterm/css/xterm.css";
+import ScriptWorkbench from "../scripts/ScriptWorkbench";
 import { useSshTerminalSession } from "../../hooks/useSshTerminalSession";
 import type {
   SshConnectInput,
@@ -572,6 +573,13 @@ export default function MacTerminal() {
             ) : null}
           </div>
         </aside>
+      </div>
+
+      <div className="border-t border-white/10 p-5">
+        <ScriptWorkbench
+          canInjectRemote={Boolean(session)}
+          onInjectRemote={send}
+        />
       </div>
     </section>
   );
