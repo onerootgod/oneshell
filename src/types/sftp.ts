@@ -44,3 +44,13 @@ export type SftpOperationResult = {
   targetPath: string;
   bytesTransferred: number;
 };
+
+export type SftpTransferRecord = {
+  id: string;
+  action: string;
+  sourcePath?: string;
+  targetPath: string;
+  bytesTransferred: number;
+  status: string;
+  createdAt: number;
+};

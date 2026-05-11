@@ -6,6 +6,7 @@ import type {
   ListSftpDirectoryInput,
   SftpDirectorySnapshot,
   SftpOperationResult,
+  SftpTransferRecord,
   UploadSftpFileInput
 } from "../../types/sftp";
 
@@ -41,4 +42,8 @@ export async function downloadSftpFile(
   input: DownloadSftpFileInput
 ): Promise<SftpOperationResult> {
   return invoke<SftpOperationResult>("download_sftp_file", { input });
+}
+
+export async function listSftpTransfers(): Promise<SftpTransferRecord[]> {
+  return invoke<SftpTransferRecord[]>("list_sftp_transfers");
 }

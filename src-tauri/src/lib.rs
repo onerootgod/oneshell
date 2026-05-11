@@ -23,6 +23,7 @@ pub fn run() {
             commands::sftp::download_sftp_file,
             commands::sftp::get_sftp_root,
             commands::sftp::list_sftp_directory,
+            commands::sftp::list_sftp_transfers,
             commands::sftp::upload_sftp_file,
             commands::ssh::connect_ssh_session,
             commands::ssh::disconnect_ssh_session,

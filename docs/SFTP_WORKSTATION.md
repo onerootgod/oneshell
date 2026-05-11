@@ -19,10 +19,12 @@
 - `delete_sftp_entry`
 - `upload_sftp_file`
 - `download_sftp_file`
+- `list_sftp_transfers`
 - React 文件工作台第一版
 - 中文 / Emoji 文件名展示链路
 - 文件大小、权限、修改时间等基础元数据
 - 建目录、删除、上传拷贝、下载导出
+- 传输队列 / 历史骨架
 
 ## ⚠️ 当前实现边界
 
@@ -78,6 +80,22 @@ type SftpDirectorySnapshot = {
 
 ### `download_sftp_file`
 
+### `list_sftp_transfers`
+
+输出：
+
+```ts
+type SftpTransferRecord = {
+  id: string;
+  action: string;
+  sourcePath?: string;
+  targetPath: string;
+  bytesTransferred: number;
+  status: string;
+  createdAt: number;
+};
+```
+
 这些 command 当前都返回统一结构：
 
 ```ts
@@ -101,5 +119,5 @@ type SftpOperationResult = {
 
 1. 把当前文件操作从本地工作区根目录切到真实 SSH transport
 2. 把脚本工作站和 SFTP 目录联动
-3. 为大文件传输补异步队列和进度状态
-4. 补冲突策略、覆盖确认和进度展示
+3. 给传输队列补真实 progress / running / failed 状态
+4. 补冲突策略、覆盖确认和大文件传输展示

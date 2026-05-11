@@ -2,7 +2,8 @@ use crate::{
     app_state::AppState,
     modules::models::{
         CreateSftpDirectoryInput, DeleteSftpEntryInput, DownloadSftpFileInput,
-        ListSftpDirectoryInput, SftpDirectorySnapshot, SftpOperationResult, UploadSftpFileInput,
+        ListSftpDirectoryInput, SftpDirectorySnapshot, SftpOperationResult, SftpTransferRecord,
+        UploadSftpFileInput,
     },
 };
 use tauri::State;
@@ -67,4 +68,11 @@ pub async fn download_sftp_file(
         .sftp
         .download_file(input)
         .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn list_sftp_transfers(
+    state: State<'_, AppState>,
+) -> Result<Vec<SftpTransferRecord>, String> {
+    Ok(state.sftp.list_transfers())
 }

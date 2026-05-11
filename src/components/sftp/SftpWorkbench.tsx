@@ -5,12 +5,14 @@ import {
   downloadSftpFile,
   getSftpRoot,
   listSftpDirectory,
+  listSftpTransfers,
   uploadSftpFile
 } from "../../lib/tauri/sftp";
 import type {
   SftpDirectorySnapshot,
   SftpEntryNode,
-  SftpOperationResult
+  SftpOperationResult,
+  SftpTransferRecord
 } from "../../types/sftp";
 
 export default function SftpWorkbench() {
@@ -23,6 +25,7 @@ export default function SftpWorkbench() {
   const [uploadTargetName, setUploadTargetName] = useState("");
   const [downloadDestinationPath, setDownloadDestinationPath] = useState("");
   const [lastOperation, setLastOperation] = useState<SftpOperationResult | null>(null);
+  const [transferHistory, setTransferHistory] = useState<SftpTransferRecord[]>([]);
 
   useEffect(() => {
     void refresh();
@@ -44,8 +47,17 @@ export default function SftpWorkbench() {
       setStatus(
         `📦 已载入 ${nextSnapshot.totalEntries} 个条目 · UTF-8 / Emoji 文件名链路已接通`
       );
+      void refreshTransfers();
     } catch (error) {
       setStatus(error instanceof Error ? error.message : "SFTP 目录读取失败");
+    }
+  }
+
+  async function refreshTransfers() {
+    try {
+      setTransferHistory(await listSftpTransfers());
+    } catch {
+      // keep UI usable even if history endpoint is unavailable
     }
   }
 
@@ -110,6 +122,7 @@ export default function SftpWorkbench() {
     });
     setLastOperation(result);
     setStatus(`⬇️ 已导出：${result.targetPath}`);
+    await refreshTransfers();
   }
 
   return (
@@ -258,37 +271,78 @@ export default function SftpWorkbench() {
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-white/10 bg-black/10 p-4">
-          <p className="text-xs uppercase tracking-[0.22em] text-slate-500">最近操作</p>
-          {lastOperation ? (
-            <div className="mt-3 space-y-2 text-sm text-slate-300">
-              <p>
-                动作：<span className="font-medium text-slate-100">{lastOperation.action}</span>
+        <div className="mt-6 grid gap-4 xl:grid-cols-2">
+          <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+            <p className="text-xs uppercase tracking-[0.22em] text-slate-500">最近操作</p>
+            {lastOperation ? (
+              <div className="mt-3 space-y-2 text-sm text-slate-300">
+                <p>
+                  动作：<span className="font-medium text-slate-100">{lastOperation.action}</span>
+                </p>
+                <p>
+                  来源：
+                  <span className="ml-1 break-all font-medium text-slate-100">
+                    {lastOperation.sourcePath ?? "—"}
+                  </span>
+                </p>
+                <p>
+                  目标：
+                  <span className="ml-1 break-all font-medium text-slate-100">
+                    {lastOperation.targetPath}
+                  </span>
+                </p>
+                <p>
+                  字节：
+                  <span className="ml-1 font-medium text-slate-100">
+                    {lastOperation.bytesTransferred}
+                  </span>
+                </p>
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-slate-500">
+                这里会记录最近一次上传、下载、删除或建目录操作。
               </p>
-              <p>
-                来源：
-                <span className="ml-1 break-all font-medium text-slate-100">
-                  {lastOperation.sourcePath ?? "—"}
-                </span>
-              </p>
-              <p>
-                目标：
-                <span className="ml-1 break-all font-medium text-slate-100">
-                  {lastOperation.targetPath}
-                </span>
-              </p>
-              <p>
-                字节：
-                <span className="ml-1 font-medium text-slate-100">
-                  {lastOperation.bytesTransferred}
-                </span>
-              </p>
+            )}
+          </div>
+
+          <div className="rounded-2xl border border-white/10 bg-black/10 p-4">
+            <div className="flex items-center justify-between gap-3">
+              <p className="text-xs uppercase tracking-[0.22em] text-slate-500">传输队列</p>
+              <button
+                className="rounded-lg border border-white/10 px-3 py-1 text-xs text-slate-300"
+                onClick={() => void refreshTransfers()}
+              >
+                刷新队列
+              </button>
             </div>
-          ) : (
-            <p className="mt-3 text-sm text-slate-500">
-              这里会记录最近一次上传、下载、删除或建目录操作。
-            </p>
-          )}
+            {transferHistory.length ? (
+              <div className="mt-3 space-y-3">
+                {transferHistory.map((record) => (
+                  <div
+                    key={record.id}
+                    className="rounded-xl border border-white/10 px-3 py-3 text-sm text-slate-300"
+                  >
+                    <p>
+                      <span className="font-medium text-slate-100">{record.action}</span>
+                      <span className="ml-2 text-xs uppercase tracking-[0.16em] text-cyan-200">
+                        {record.status}
+                      </span>
+                    </p>
+                    <p className="mt-1 break-all text-xs text-slate-400">
+                      {record.sourcePath ?? "—"} → {record.targetPath}
+                    </p>
+                    <p className="mt-1 text-xs text-slate-500">
+                      {formatBytes(record.bytesTransferred)} · {formatTimestamp(record.createdAt)}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="mt-3 text-sm text-slate-500">
+                还没有传输记录。后续接真实远端 SFTP 时，这里会自然扩成进度队列。
+              </p>
+            )}
+          </div>
         </div>
       </div>
     </section>
@@ -300,4 +354,13 @@ function formatBytes(value: number): string {
   if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KB`;
   if (value < 1024 * 1024 * 1024) return `${(value / 1024 / 1024).toFixed(1)} MB`;
   return `${(value / 1024 / 1024 / 1024).toFixed(1)} GB`;
+}
+
+function formatTimestamp(value: number): string {
+  if (!value) {
+    return "未知时间";
+  }
+  return new Date(value * 1000).toLocaleString("zh-CN", {
+    hour12: false
+  });
 }

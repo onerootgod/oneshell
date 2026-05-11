@@ -219,3 +219,15 @@ pub struct SftpOperationResult {
     pub target_path: String,
     pub bytes_transferred: u64,
 }
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SftpTransferRecord {
+    pub id: String,
+    pub action: String,
+    pub source_path: Option<String>,
+    pub target_path: String,
+    pub bytes_transferred: u64,
+    pub status: String,
+    pub created_at: i64,
+}

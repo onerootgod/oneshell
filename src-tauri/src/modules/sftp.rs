@@ -1,27 +1,40 @@
 use crate::modules::models::{
     CreateSftpDirectoryInput, DeleteSftpEntryInput, DownloadSftpFileInput,
     ListSftpDirectoryInput, SftpDirectorySnapshot, SftpEntryNode, SftpOperationResult,
-    UploadSftpFileInput,
+    SftpTransferRecord, UploadSftpFileInput,
 };
 use anyhow::{bail, Context, Result};
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, Mutex},
     time::UNIX_EPOCH,
 };
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub struct SftpWorkspace {
     root_dir: PathBuf,
+    transfers: Arc<Mutex<Vec<SftpTransferRecord>>>,
 }
 
 impl SftpWorkspace {
     pub fn new(root_dir: PathBuf) -> Self {
-        Self { root_dir }
+        Self {
+            root_dir,
+            transfers: Arc::new(Mutex::new(Vec::new())),
+        }
     }
 
     pub fn root_dir(&self) -> &Path {
         &self.root_dir
+    }
+
+    pub fn list_transfers(&self) -> Vec<SftpTransferRecord> {
+        self.transfers
+            .lock()
+            .map(|records| records.clone())
+            .unwrap_or_default()
     }
 
     pub fn list_directory(
@@ -82,12 +95,14 @@ impl SftpWorkspace {
         let target = parent.join(&name);
         fs::create_dir_all(&target)
             .with_context(|| format!("failed to create directory: {}", target.display()))?;
-        Ok(SftpOperationResult {
+        let result = SftpOperationResult {
             action: "mkdir".into(),
             source_path: None,
             target_path: target.to_string_lossy().into_owned(),
             bytes_transferred: 0,
-        })
+        };
+        self.record_transfer(&result);
+        Ok(result)
     }
 
     pub fn delete_entry(
@@ -102,12 +117,14 @@ impl SftpWorkspace {
             fs::remove_file(&target)
                 .with_context(|| format!("failed to delete file: {}", target.display()))?;
         }
-        Ok(SftpOperationResult {
+        let result = SftpOperationResult {
             action: "delete".into(),
             source_path: Some(target.to_string_lossy().into_owned()),
             target_path: target.to_string_lossy().into_owned(),
             bytes_transferred: 0,
-        })
+        };
+        self.record_transfer(&result);
+        Ok(result)
     }
 
     pub fn upload_file(
@@ -143,12 +160,14 @@ impl SftpWorkspace {
                 target.display()
             )
         })?;
-        Ok(SftpOperationResult {
+        let result = SftpOperationResult {
             action: "upload".into(),
             source_path: Some(source.to_string_lossy().into_owned()),
             target_path: target.to_string_lossy().into_owned(),
             bytes_transferred: bytes,
-        })
+        };
+        self.record_transfer(&result);
+        Ok(result)
     }
 
     pub fn download_file(
@@ -186,12 +205,14 @@ impl SftpWorkspace {
                 target.display()
             )
         })?;
-        Ok(SftpOperationResult {
+        let result = SftpOperationResult {
             action: "download".into(),
             source_path: Some(source.to_string_lossy().into_owned()),
             target_path: target.to_string_lossy().into_owned(),
             bytes_transferred: bytes,
-        })
+        };
+        self.record_transfer(&result);
+        Ok(result)
     }
 
     fn resolve_directory(&self, requested: Option<&str>) -> Result<PathBuf> {
@@ -248,6 +269,24 @@ impl SftpWorkspace {
         }
         Ok(normalized)
     }
+
+    fn record_transfer(&self, result: &SftpOperationResult) {
+        if let Ok(mut records) = self.transfers.lock() {
+            records.insert(
+                0,
+                SftpTransferRecord {
+                    id: Uuid::new_v4().to_string(),
+                    action: result.action.clone(),
+                    source_path: result.source_path.clone(),
+                    target_path: result.target_path.clone(),
+                    bytes_transferred: result.bytes_transferred,
+                    status: "completed".into(),
+                    created_at: current_timestamp(),
+                },
+            );
+            records.truncate(50);
+        }
+    }
 }
 
 fn permissions_string(metadata: &fs::Metadata) -> String {
@@ -279,4 +318,11 @@ fn sanitize_entry_name(value: &str) -> Result<String> {
         bail!("entry name cannot contain path separators");
     }
     Ok(trimmed.to_owned())
+}
+
+fn current_timestamp() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs() as i64)
+        .unwrap_or_default()
 }
