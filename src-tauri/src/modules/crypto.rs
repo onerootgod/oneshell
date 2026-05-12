@@ -49,7 +49,7 @@ pub fn encrypt_secret(master_key: &str, plaintext: &str) -> Result<String> {
     let nonce = Nonce::from_slice(&nonce_bytes);
     let ciphertext = cipher
         .encrypt(nonce, plaintext.as_bytes())
-        .context("failed to encrypt secret")?;
+        .map_err(|error| anyhow!("failed to encrypt secret: {error}"))?;
 
     let mut payload = nonce_bytes.to_vec();
     payload.extend(ciphertext);
@@ -69,7 +69,7 @@ pub fn decrypt_secret(master_key: &str, payload: &str) -> Result<String> {
     let nonce = Nonce::from_slice(nonce_bytes);
     let plaintext = cipher
         .decrypt(nonce, ciphertext)
-        .context("failed to decrypt secret")?;
+        .map_err(|error| anyhow!("failed to decrypt secret: {error}"))?;
 
     String::from_utf8(plaintext).context("decrypted secret was not valid UTF-8")
 }

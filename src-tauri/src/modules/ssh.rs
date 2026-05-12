@@ -17,11 +17,10 @@ use std::{
     sync::Arc,
     time::{SystemTime, UNIX_EPOCH},
 };
-use tauri::{AppHandle, Emitter};
+use tauri::{async_runtime::JoinHandle, AppHandle, Emitter};
 use tokio::{
     net::TcpStream,
     sync::{Mutex, RwLock},
-    task::JoinHandle,
     time::{sleep, timeout, Duration},
 };
 use tokio_socks::tcp::Socks5Stream;
@@ -71,7 +70,7 @@ enum KeepaliveTarget {
     Russh(Arc<Mutex<RusshHandle>>),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 struct RusshClientHandler {
     host: String,
     host_key_policy: HostKeyPolicy,
@@ -83,6 +82,12 @@ enum HostKeyPolicy {
     Strict,
     AcceptNew,
     Off,
+}
+
+impl Default for HostKeyPolicy {
+    fn default() -> Self {
+        Self::AcceptNew
+    }
 }
 
 impl client::Handler for RusshClientHandler {
@@ -808,23 +813,29 @@ fn sanitize_connect_input(input: SshConnectInput) -> Result<SanitizedConnectInpu
         bail!("SSH password cannot be empty");
     }
 
-    let proxy = input
-        .proxy
-        .map(|proxy| SanitizedProxyConfig {
-            host: proxy.host.trim().to_owned(),
-            port: proxy.port,
-            username: proxy
-                .username
-                .map(|value| value.trim().to_owned())
-                .filter(|value| !value.is_empty()),
-            password: proxy.password.filter(|value| !value.is_empty()),
-        })
-        .filter(|proxy| !proxy.host.is_empty());
     let proxy_auth_enabled = input
         .proxy
         .as_ref()
         .map(|proxy| proxy.username.as_ref().is_some() || proxy.password.as_ref().is_some())
         .unwrap_or(false);
+    let proxy = input
+        .proxy
+        .as_ref()
+        .map(|proxy| SanitizedProxyConfig {
+            host: proxy.host.trim().to_owned(),
+            port: proxy.port,
+            username: proxy
+                .username
+                .as_ref()
+                .map(|value| value.trim().to_owned())
+                .filter(|value| !value.is_empty()),
+            password: proxy
+                .password
+                .as_ref()
+                .filter(|value| !value.is_empty())
+                .cloned(),
+        })
+        .filter(|proxy| !proxy.host.is_empty());
 
     Ok(SanitizedConnectInput {
         host,
